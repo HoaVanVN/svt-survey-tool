@@ -41,7 +41,7 @@ def upsert_workload(customer_id: int, data: schemas.WorkloadSurveyBase, db: Sess
 
     db.query(models.WorkloadItem).filter(models.WorkloadItem.survey_id == s.id).delete()
     for i, item in enumerate(items_data):
-        wi = models.WorkloadItem(survey_id=s.id, order_no=i + 1, **item.model_dump())
+        wi = models.WorkloadItem(survey_id=s.id, order_no=i + 1, **item.model_dump(exclude={"order_no"}))
         db.add(wi)
 
     db.commit()
@@ -113,7 +113,7 @@ def upsert_backup(customer_id: int, data: schemas.BackupSurveyBase, db: Session 
     db.flush()
     db.query(models.BackupSource).filter(models.BackupSource.survey_id == s.id).delete()
     for i, src in enumerate(sources_data):
-        bs = models.BackupSource(survey_id=s.id, order_no=i + 1, **src.model_dump())
+        bs = models.BackupSource(survey_id=s.id, order_no=i + 1, **src.model_dump(exclude={"order_no"}))
         db.add(bs)
 
     db.commit()
