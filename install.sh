@@ -66,11 +66,22 @@ install_backend() {
 
 build_frontend() {
   log "Building frontend..."
+  mkdir -p "$APP_DIR/frontend"
   cd "$SCRIPT_DIR/frontend"
-  npm install --silent
-  npm run build --silent
+
+  log "Installing npm packages..."
+  npm install
+
+  log "Compiling React app (this may take a minute)..."
+  npm run build
+
+  if [ ! -f "dist/index.html" ]; then
+    err "Frontend build failed: dist/index.html not found. Check npm output above."
+  fi
+
+  rm -rf "$APP_DIR/frontend/dist"
   cp -r dist "$APP_DIR/frontend/"
-  log "Frontend built ✓"
+  log "Frontend built and deployed ✓"
 }
 
 configure_nginx() {
