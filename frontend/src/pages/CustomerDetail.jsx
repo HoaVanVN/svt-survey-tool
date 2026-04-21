@@ -1,39 +1,40 @@
 import React, { useEffect, useState } from 'react'
-import { Outlet, NavLink, useParams, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useParams, useNavigate, useLocation } from 'react-router-dom'
 import { customers as api, exportApi } from '../api'
 import toast from 'react-hot-toast'
-
-const TABS = [
-  { path: 'workload', label: '💻 Workload', title: 'Workload Survey' },
-  { path: 'network', label: '🌐 Network', title: 'Network & Infra' },
-  { path: 'backup', label: '💾 Backup', title: 'Backup Survey' },
-  { path: 'inventory', label: '🖥️ Inventory', title: 'Physical Inventory' },
-  { path: 'security', label: '🔒 Security', title: 'Security' },
-  { path: 'ocp', label: '☸️ OCP', title: 'OpenShift Sizing' },
-  { path: 'sizing', label: '📊 Kết quả Sizing', title: 'Sizing Results' },
-]
 
 export default function CustomerDetail() {
   const { id } = useParams()
   const nav = useNavigate()
+  const location = useLocation()
   const [customer, setCustomer] = useState(null)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({})
 
   useEffect(() => {
-    api.get(id).then(r => { setCustomer(r.data); setForm(r.data) }).catch(() => { toast.error('Không tìm thấy khách hàng'); nav('/customers') })
+    api.get(id).then(r => { setCustomer(r.data); setForm(r.data) })
+      .catch(() => { toast.error('Không tìm thấy khách hàng'); nav('/customers') })
   }, [id])
 
   const save = async () => {
-    try { const r = await api.update(id, form); setCustomer(r.data); setEditing(false); toast.success('Đã cập nhật') }
-    catch { toast.error('Lỗi khi lưu') }
+    try {
+      const r = await api.update(id, form)
+      setCustomer(r.data)
+      setEditing(false)
+      toast.success('Đã cập nhật')
+    } catch {
+      toast.error('Lỗi khi lưu')
+    }
   }
 
   if (!customer) return <div className="flex items-center justify-center h-64 text-gray-400">Đang tải...</div>
 
+  const isInventory = location.pathname.includes(`/customers/${id}/inventory`)
+  const isSizing = location.pathname.includes(`/customers/${id}/sizing`)
+
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Customer header */}
       <div className="card">
         {!editing ? (
           <div className="flex items-start justify-between flex-wrap gap-3">
@@ -47,12 +48,7 @@ export default function CustomerDetail() {
                 {customer.survey_date && <span>📅 {customer.survey_date}</span>}
               </div>
             </div>
-            <div className="flex gap-2 flex-wrap">
-              <button className="btn-secondary text-xs" onClick={() => setEditing(true)}>✏️ Sửa</button>
-              <button className="btn-success text-xs" onClick={() => exportApi.excel(id, customer.name)}>
-                ⬇️ Export Excel
-              </button>
-            </div>
+            <button className="btn-secondary text-xs" onClick={() => setEditing(true)}>✏️ Sửa</button>
           </div>
         ) : (
           <div className="space-y-3">
@@ -72,24 +68,33 @@ export default function CustomerDetail() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 overflow-x-auto">
-        <nav className="flex gap-1 min-w-max">
-          {TABS.map(t => (
-            <NavLink
-              key={t.path}
-              to={`/customers/${id}/${t.path}`}
-              className={({ isActive }) =>
-                `px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  isActive ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`
-              }
-            >{t.label}</NavLink>
-          ))}
-        </nav>
+      {/* Tool selector */}
+      <div className="flex gap-3">
+        <NavLink
+          to={`/customers/${id}/inventory/servers`}
+          className={`flex-1 text-center py-3 rounded-lg font-semibold text-sm transition-colors border-2 ${
+            isInventory
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+          }`}
+        >
+          🖥️ Inventory Tool
+          <div className="text-xs font-normal opacity-75 mt-0.5">Kiểm kê thiết bị & ứng dụng</div>
+        </NavLink>
+        <NavLink
+          to={`/customers/${id}/sizing/workload`}
+          className={`flex-1 text-center py-3 rounded-lg font-semibold text-sm transition-colors border-2 ${
+            isSizing
+              ? 'bg-emerald-600 text-white border-emerald-600'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-600'
+          }`}
+        >
+          📐 Sizing Tool
+          <div className="text-xs font-normal opacity-75 mt-0.5">Khảo sát & tính toán sizing</div>
+        </NavLink>
       </div>
 
-      {/* Tab content */}
+      {/* Tool content */}
       <Outlet />
     </div>
   )

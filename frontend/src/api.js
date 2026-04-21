@@ -28,8 +28,11 @@ export const backup = {
 }
 
 export const inventory = {
-  get: (cid) => api.get(`/customers/${cid}/inventory`),
-  save: (cid, data) => api.put(`/customers/${cid}/inventory`, data),
+  getCategory: (cid, cat) => api.get(`/customers/${cid}/inventory/${cat}`),
+  saveCategory: (cid, cat, items) => api.put(`/customers/${cid}/inventory/${cat}`, { items }),
+  getApplications: (cid) => api.get(`/customers/${cid}/inventory/applications/list`),
+  saveApplications: (cid, applications) => api.put(`/customers/${cid}/inventory/applications/list`, { applications }),
+  getAll: (cid) => api.get(`/customers/${cid}/inventory/summary/all`),
 }
 
 export const security = {
@@ -50,5 +53,17 @@ export const exportApi = {
     a.href = `/api/customers/${cid}/export/excel`
     a.download = `SVT_Survey_${name || cid}.xlsx`
     a.click()
-  }
+  },
+  inventoryPdf: (cid, name) => {
+    const a = document.createElement('a')
+    a.href = `/api/customers/${cid}/export/inventory-pdf`
+    a.download = `SVT_Inventory_${name || cid}.pdf`
+    a.click()
+  },
+  sizingPdf: (cid, name) => {
+    const a = document.createElement('a')
+    a.href = `/api/customers/${cid}/export/sizing-pdf`
+    a.download = `SVT_Sizing_${name || cid}.pdf`
+    a.click()
+  },
 }

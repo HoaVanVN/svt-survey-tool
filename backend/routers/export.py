@@ -65,6 +65,7 @@ def build_excel(customer_id: int, db: Session):
     bk = db.query(models.BackupSurvey).filter(models.BackupSurvey.customer_id == customer_id).first()
     sources = db.query(models.BackupSource).filter(models.BackupSource.survey_id == bk.id).all() if bk else []
     inv = db.query(models.PhysicalInventory).filter(models.PhysicalInventory.customer_id == customer_id).first()
+    app_inv = db.query(models.ApplicationInventory).filter(models.ApplicationInventory.customer_id == customer_id).first()
     sec = db.query(models.SecuritySurvey).filter(models.SecuritySurvey.customer_id == customer_id).first()
     ocp = db.query(models.OCPSurvey).filter(models.OCPSurvey.customer_id == customer_id).first()
 
@@ -439,7 +440,49 @@ def build_excel(customer_id: int, db: Session):
                             _cell(ws6, row, j, v)
                         row += 1
 
-    # ── Sheet 7: Security ────────────────────────────────────────────────────
+    # ── Sheet 7: Application Inventory ───────────────────────────────────────
+    apps = (app_inv.applications or []) if app_inv else []
+    ws7a = wb.create_sheet("APPLICATION INVENTORY")
+    ws7a.column_dimensions["A"].width = 5
+    ws7a.column_dimensions["B"].width = 30
+    ws7a.column_dimensions["C"].width = 15
+    ws7a.column_dimensions["D"].width = 20
+    ws7a.column_dimensions["E"].width = 20
+    ws7a.column_dimensions["F"].width = 18
+    ws7a.column_dimensions["G"].width = 28
+    ws7a.column_dimensions["H"].width = 18
+    ws7a.column_dimensions["I"].width = 20
+    ws7a.column_dimensions["J"].width = 15
+    ws7a.column_dimensions["K"].width = 18
+    ws7a.column_dimensions["L"].width = 25
+
+    ws7a.merge_cells("A1:L1")
+    ws7a["A1"].value = "APPLICATION INVENTORY – DANH MỤC ỨNG DỤNG"
+    ws7a["A1"].font = Font(bold=True, size=14, color=WHITE)
+    ws7a["A1"].fill = PatternFill("solid", fgColor=DARK_BLUE)
+    ws7a["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws7a.row_dimensions[1].height = 35
+
+    app_hdrs = ["STT", "Tên ứng dụng", "Phiên bản", "Vendor", "Loại ứng dụng", "Môi trường",
+                "Server/Host", "Database", "OS", "Criticality", "Hết hỗ trợ", "Ghi chú"]
+    for j, h in enumerate(app_hdrs, start=1):
+        _hdr(ws7a, 2, j, h, size=9)
+    ws7a.row_dimensions[2].height = 30
+
+    for i, app in enumerate(apps, start=3):
+        if isinstance(app, dict):
+            vals = [i - 2, app.get("name", ""), app.get("version", ""), app.get("vendor", ""),
+                    app.get("app_type", ""), app.get("environment", ""), app.get("servers", ""),
+                    app.get("database", ""), app.get("os", ""), app.get("criticality", ""),
+                    app.get("support_expiry", ""), app.get("notes", "")]
+            for j, v in enumerate(vals, start=1):
+                _cell(ws7a, i, j, v, align="center" if j in [1, 10] else "left")
+
+    if not apps:
+        ws7a.merge_cells("A3:L3")
+        _cell(ws7a, 3, 1, "Chưa có dữ liệu ứng dụng", align="center")
+
+    # ── Sheet 8: Security ────────────────────────────────────────────────────
     if sec and sec.responses:
         ws7 = wb.create_sheet("SECURITY QUESTIONNAIRE")
         ws7.column_dimensions["A"].width = 5

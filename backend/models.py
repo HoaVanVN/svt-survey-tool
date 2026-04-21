@@ -22,6 +22,7 @@ class Customer(Base):
     network_survey = relationship("NetworkSurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     backup_survey = relationship("BackupSurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     physical_inventory = relationship("PhysicalInventory", back_populates="customer", uselist=False, cascade="all, delete-orphan")
+    application_inventory = relationship("ApplicationInventory", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     security_survey = relationship("SecuritySurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     ocp_survey = relationship("OCPSurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
 
@@ -181,6 +182,14 @@ class PhysicalInventory(Base):
     network_devices = Column(JSON, default=list)
     wifi_aps = Column(JSON, default=list)
     customer = relationship("Customer", back_populates="physical_inventory")
+
+
+class ApplicationInventory(Base):
+    __tablename__ = "application_inventories"
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), unique=True)
+    applications = Column(JSON, default=list)
+    customer = relationship("Customer", back_populates="application_inventory")
 
 
 class SecuritySurvey(Base):
