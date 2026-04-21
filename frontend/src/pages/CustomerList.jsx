@@ -36,16 +36,28 @@ export default function CustomerList() {
 
   return (
     <div className="space-y-6">
+      {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Danh sách Khách hàng</h1>
           <p className="text-sm text-gray-500 mt-1">{list.length} khách hàng</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>
-          + Thêm khách hàng
-        </button>
+        <button className="btn-primary" onClick={() => setShowForm(true)}>+ Thêm khách hàng</button>
       </div>
 
+      {/* Tool legend */}
+      <div className="flex gap-3 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+          <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
+          🖥️ Inventory Tool – Kiểm kê thiết bị & ứng dụng
+        </span>
+        <span className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded px-2 py-1">
+          <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
+          📐 Sizing Tool – Khảo sát & tính toán sizing
+        </span>
+      </div>
+
+      {/* New customer form */}
       {showForm && (
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Thêm khách hàng mới</h2>
@@ -76,28 +88,40 @@ export default function CustomerList() {
         </div>
       )}
 
+      {/* Customer cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {list.map(c => (
           <div key={c.id} className="card hover:shadow-md transition-shadow group">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between mb-3">
               <div className="flex-1 min-w-0">
-                <Link to={`/customers/${c.id}/workload`} className="text-brand-700 font-semibold text-base hover:underline block truncate">{c.name}</Link>
-                {c.project_name && <p className="text-sm text-gray-600 truncate">{c.project_name}</p>}
-                <div className="mt-2 space-y-0.5 text-xs text-gray-500">
+                <p className="font-semibold text-base text-gray-900 truncate">{c.name}</p>
+                {c.project_name && <p className="text-sm text-gray-500 truncate">📁 {c.project_name}</p>}
+                <div className="mt-1.5 space-y-0.5 text-xs text-gray-400">
                   {c.contact && <p>👤 {c.contact}</p>}
-                  {c.email && <p>✉️ {c.email}</p>}
                   {c.presales && <p>🧑‍💼 {c.presales}</p>}
                   {c.survey_date && <p>📅 {c.survey_date}</p>}
                 </div>
               </div>
-              <button onClick={() => del(c.id, c.name)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-2 transition-opacity text-xs">✕</button>
+              <button onClick={() => del(c.id, c.name)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-2 transition-opacity text-xs mt-0.5">✕</button>
             </div>
-            <div className="mt-4 flex gap-2">
-              <Link to={`/customers/${c.id}/workload`} className="btn-primary text-xs flex-1 justify-center">
-                Khảo sát →
+
+            {/* Two tool buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+              <Link
+                to={`/customers/${c.id}/inventory/servers`}
+                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 transition-colors text-center"
+              >
+                <span className="text-lg leading-none mb-0.5">🖥️</span>
+                <span className="text-xs font-semibold">Inventory</span>
+                <span className="text-[10px] text-blue-500">Kiểm kê thiết bị</span>
               </Link>
-              <Link to={`/customers/${c.id}/sizing`} className="btn-secondary text-xs flex-1 justify-center">
-                Sizing
+              <Link
+                to={`/customers/${c.id}/sizing/workload`}
+                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 transition-colors text-center"
+              >
+                <span className="text-lg leading-none mb-0.5">📐</span>
+                <span className="text-xs font-semibold">Sizing</span>
+                <span className="text-[10px] text-emerald-500">Tính toán sizing</span>
               </Link>
             </div>
           </div>

@@ -31,6 +31,13 @@ export default function App() {
           <Route path="customers" element={<CustomerList />} />
           <Route path="customers/:id" element={<CustomerDetail />}>
             <Route index element={<Navigate to="inventory/servers" replace />} />
+            {/* Legacy URL redirects */}
+            <Route path="workload" element={<Navigate to="sizing/workload" replace />} />
+            <Route path="network" element={<Navigate to="sizing/network" replace />} />
+            <Route path="backup" element={<Navigate to="sizing/backup" replace />} />
+            <Route path="security" element={<Navigate to="sizing/security" replace />} />
+            <Route path="ocp" element={<Navigate to="sizing/ocp" replace />} />
+            <Route path="sizing-results" element={<Navigate to="sizing/results" replace />} />
             <Route path="inventory" element={<InventoryLayout />}>
               <Route index element={<Navigate to="servers" replace />} />
               <Route path="servers" element={<ServerInventory />} />
