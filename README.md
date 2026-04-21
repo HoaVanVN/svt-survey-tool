@@ -27,7 +27,7 @@
 ### Option 1: Ubuntu Installer (khuyến nghị cho production)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/svt-survey-tool.git
+git clone https://github.com/HoaVanVN/svt-survey-tool.git
 cd svt-survey-tool
 sudo bash install.sh
 ```
@@ -39,7 +39,7 @@ Sau khi cài xong, truy cập: `http://SERVER_IP`
 ### Option 2: Docker Compose
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/svt-survey-tool.git
+git clone https://github.com/HoaVanVN/svt-survey-tool.git
 cd svt-survey-tool
 docker compose up -d
 ```
