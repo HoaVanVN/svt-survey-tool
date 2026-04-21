@@ -151,6 +151,31 @@ set_permissions() {
   chmod -R 770 "$DATA_DIR"
 }
 
+verify_install() {
+  log "Verifying installation..."
+
+  # Check dist
+  if [ ! -f "$APP_DIR/frontend/dist/index.html" ]; then
+    err "Verification failed: $APP_DIR/frontend/dist/index.html not found"
+  fi
+  log "Frontend dist ✓"
+
+  # Check backend health
+  sleep 3
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${BACKEND_PORT}/api/health || echo "000")
+  if [ "$HTTP" = "200" ]; then
+    log "Backend API health check ✓"
+  else
+    err "Verification failed: backend returned HTTP $HTTP. Check: journalctl -u svt-survey -n 30"
+  fi
+
+  # Check nginx
+  if ! nginx -t 2>/dev/null; then
+    err "Verification failed: nginx config invalid"
+  fi
+  log "Nginx config ✓"
+}
+
 print_summary() {
   IP=$(hostname -I | awk '{print $1}')
   echo ""
@@ -168,6 +193,10 @@ print_summary() {
   echo -e "    sudo systemctl restart svt-survey"
   echo -e "    sudo journalctl -u svt-survey -f"
   echo ""
+  echo -e "  Upgrade / Reinstall:"
+  echo -e "    sudo bash upgrade.sh"
+  echo -e "    sudo bash reinstall.sh"
+  echo ""
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -182,4 +211,5 @@ build_frontend
 configure_nginx
 set_permissions
 create_systemd_service
+verify_install
 print_summary

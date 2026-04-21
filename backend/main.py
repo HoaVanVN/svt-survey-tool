@@ -10,7 +10,7 @@ from routers import customers, surveys, export
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SVT Survey Tool", version="1.0.1")
+app = FastAPI(title="SVT Survey Tool", version="1.0.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,7 +37,7 @@ if os.path.exists(STATIC_DIR):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.1"}
+    return {"status": "ok", "version": "1.0.2"}
 
 @app.get("/api/security-questions")
 def get_questions():
