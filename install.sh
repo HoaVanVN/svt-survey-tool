@@ -146,9 +146,21 @@ SERVICE
 }
 
 set_permissions() {
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR" "$DATA_DIR"
-  chmod -R 750 "$APP_DIR"
+  # Backend + venv: chỉ service user cần đọc
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/backend" "$APP_DIR/venv"
+  chmod -R 750 "$APP_DIR/backend" "$APP_DIR/venv"
+
+  # Data dir: service user read/write
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
   chmod -R 770 "$DATA_DIR"
+
+  # Frontend dist: nginx (www-data) cần đọc — dùng 755/644
+  chown -R "$SERVICE_USER:www-data" "$APP_DIR/frontend"
+  find "$APP_DIR/frontend/dist" -type d -exec chmod 755 {} \;
+  find "$APP_DIR/frontend/dist" -type f -exec chmod 644 {} \;
+
+  # App root dir phải traversable
+  chmod 755 "$APP_DIR"
 }
 
 verify_install() {

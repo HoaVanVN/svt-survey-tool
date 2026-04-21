@@ -52,7 +52,9 @@ upgrade_frontend() {
   mkdir -p "$APP_DIR/frontend"
   rm -rf "$APP_DIR/frontend/dist"
   cp -r dist "$APP_DIR/frontend/"
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/frontend"
+  chown -R "$SERVICE_USER:www-data" "$APP_DIR/frontend"
+  find "$APP_DIR/frontend/dist" -type d -exec chmod 755 {} \;
+  find "$APP_DIR/frontend/dist" -type f -exec chmod 644 {} \;
   log "Frontend deployed ✓"
 }
 
