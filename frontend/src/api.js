@@ -62,6 +62,16 @@ export const rvtools = {
   delete: (cid) => api.delete(`/customers/${cid}/rvtools`),
 }
 
+export const diagrams = {
+  list: (cid) => api.get(`/customers/${cid}/diagrams`),
+  getData: (cid, did) => api.get(`/customers/${cid}/diagrams/${did}/data`),
+  upload: (cid, formData) => api.post(`/customers/${cid}/diagrams`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  updateLabel: (cid, did, label) => api.put(`/customers/${cid}/diagrams/${did}/label`, { label }),
+  remove: (cid, did) => api.delete(`/customers/${cid}/diagrams/${did}`),
+}
+
 export const exportApi = {
   excel: (cid, name) => {
     const a = document.createElement('a')

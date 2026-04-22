@@ -12,6 +12,7 @@ const TABS = [
   { path: 'applications', label: '📦 Applications' },
   { path: 'report', label: '📋 Báo cáo' },
   { path: 'rvtools-report', label: '📊 RVTools' },
+  { path: 'diagrams', label: '🗺️ Diagrams' },
 ]
 
 export default function InventoryLayout() {

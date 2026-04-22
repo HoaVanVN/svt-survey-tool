@@ -26,6 +26,7 @@ class Customer(Base):
     security_survey = relationship("SecuritySurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     ocp_survey = relationship("OCPSurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     rvtools_data = relationship("RVToolsData", back_populates="customer", uselist=False, cascade="all, delete-orphan")
+    diagrams = relationship("CustomerDiagram", back_populates="customer", cascade="all, delete-orphan")
 
 
 class WorkloadSurvey(Base):
@@ -226,6 +227,18 @@ class RVToolsData(Base):
     vdisk = Column(JSON, default=list)
     summary = Column(JSON, default=dict)
     customer = relationship("Customer", back_populates="rvtools_data")
+
+
+class CustomerDiagram(Base):
+    __tablename__ = "customer_diagrams"
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    filename = Column(String(255), nullable=False)
+    label = Column(String(255), default="")
+    content_type = Column(String(100), default="image/png")
+    data = Column(Text, nullable=False)  # base64-encoded image
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    customer = relationship("Customer", back_populates="diagrams")
 
 
 class OCPSurvey(Base):

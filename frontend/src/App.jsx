@@ -24,6 +24,7 @@ import SizingReport from './pages/sizing/SizingReport'
 import OCPVirtSizing from './pages/sizing/OCPVirtSizing'
 import VMInventory from './pages/inventory/VMInventory'
 import RVToolsReport from './pages/inventory/RVToolsReport'
+import DiagramsPage from './pages/inventory/DiagramsPage'
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
               <Route path="applications" element={<ApplicationInventory />} />
               <Route path="report" element={<InventoryReport />} />
               <Route path="rvtools-report" element={<RVToolsReport />} />
+              <Route path="diagrams" element={<DiagramsPage />} />
             </Route>
             <Route path="sizing" element={<SizingLayout />}>
               <Route index element={<Navigate to="workload" replace />} />

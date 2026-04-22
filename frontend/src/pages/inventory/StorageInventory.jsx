@@ -9,6 +9,7 @@ const FIELDS = [
   { key: 'qty', label: 'SL', type: 'number', width: 50, default: 1 },
   { key: 'location', label: 'Vị trí', type: 'text', width: 90 },
   { key: 'storage_type', label: 'Loại', type: 'select', refType: 'storage_types', width: 95 },
+  { key: 'disk_tier', label: 'Disk Tier', type: 'select', width: 120, options: ['', 'Tier0 – NVMe', 'Tier1 – SSD', 'Tier2 – HDD 10K/15K', 'Tier3 – HDD 7.2K'] },
   { key: 'raw_capacity_tb', label: 'Raw (TB)', type: 'number', width: 75 },
   { key: 'usable_capacity_tb', label: 'Usable (TB)', type: 'number', width: 80 },
   { key: 'support_until', label: 'Support Until', type: 'eos', width: 95 },

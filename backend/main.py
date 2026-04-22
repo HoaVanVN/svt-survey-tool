@@ -12,6 +12,7 @@ from routers.inventory import router as inventory_router
 from routers.export_pdf import router as export_pdf_router
 from routers.reference import router as reference_router
 from routers.rvtools import router as rvtools_router
+from routers.diagrams import router as diagrams_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -33,7 +34,7 @@ def _run_migrations():
 
 _run_migrations()
 
-app = FastAPI(title="SVT Survey Tool", version="2.1.3")
+app = FastAPI(title="SVT Survey Tool", version="2.1.4")
 
 # Trust X-Forwarded-For / X-Forwarded-Proto headers from Nginx Proxy Manager
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
@@ -56,10 +57,11 @@ app.include_router(inventory_router, prefix="/api")
 app.include_router(export_pdf_router, prefix="/api")
 app.include_router(reference_router, prefix="/api")
 app.include_router(rvtools_router, prefix="/api")
+app.include_router(diagrams_router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.3"}
+    return {"status": "ok", "version": "2.1.4"}
 
 @app.get("/api/security-questions")
 def get_questions():
