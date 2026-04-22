@@ -35,6 +35,12 @@ export default function WorkloadSurvey() {
   })
   const addItem = () => setData(p => ({ ...p, workload_items: [...p.workload_items, { ...DEF_ITEM }] }))
   const removeItem = (i) => setData(p => ({ ...p, workload_items: p.workload_items.filter((_, j) => j !== i) }))
+  const cloneItem = (i) => setData(p => {
+    const items = [...p.workload_items]
+    const clone = { ...items[i], name: (items[i].name || '') + ' (copy)' }
+    items.splice(i + 1, 0, clone)
+    return { ...p, workload_items: items }
+  })
 
   const save = async () => {
     setSaving(true)
@@ -140,8 +146,9 @@ export default function WorkloadSurvey() {
                   <td className="table-cell p-1">
                     <input className="w-full text-xs border-gray-200 rounded px-1 py-1 border min-w-[80px]" value={item.notes || ''} onChange={e => setItem(i, 'notes', e.target.value)} />
                   </td>
-                  <td className="table-cell">
-                    <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600">✕</button>
+                  <td className="table-cell whitespace-nowrap">
+                    <button onClick={() => cloneItem(i)} className="text-blue-400 hover:text-blue-600 mr-2" title="Clone workload">⧉</button>
+                    <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600" title="Xóa">✕</button>
                   </td>
                 </tr>
               ))}

@@ -189,7 +189,7 @@ export default function SizingResults() {
             {compute && (
               <div className="flex justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
                 <span className="font-medium">I. Compute / Server Nodes</span>
-                <span className="font-bold text-blue-700">{compute.total_nodes} nodes × ({compute.cpu_sockets * compute.cores_per_socket} cores, {compute.ram_per_server_gb} GB RAM)</span>
+                <span className="font-bold text-blue-700">{compute.total_nodes} nodes × ({compute.cpu_per_server} cores, {compute.ram_per_server_gb} GB RAM)</span>
               </div>
             )}
             {storage && (

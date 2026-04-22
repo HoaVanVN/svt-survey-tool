@@ -35,6 +35,27 @@ function extractDatastore(path) {
   return m ? m[1] : ''
 }
 
+// Dynamic OS lookup — tolerates SheetJS column name variations (with/without "the", etc.)
+function getGuestOS(row) {
+  // Try exact names first (most common variants)
+  const exact = [
+    'OS according to the VMware Tools',
+    'OS according to the configuration file',
+    'OS according to VMware Tools',
+    'OS according to configuration file',
+  ]
+  for (const k of exact) {
+    if (row[k] && String(row[k]).trim() !== '') return String(row[k]).trim()
+  }
+  // Fallback: scan all keys for OS-related column (catches any encoding variation)
+  const allKeys = Object.keys(row)
+  const toolsKey = allKeys.find(k => k.toLowerCase().includes('os according') && k.toLowerCase().includes('tool'))
+  if (toolsKey && row[toolsKey]) return String(row[toolsKey]).trim()
+  const cfgKey = allKeys.find(k => k.toLowerCase().includes('os according'))
+  if (cfgKey && row[cfgKey]) return String(row[cfgKey]).trim()
+  return ''
+}
+
 // Strip build number from ESX version string
 // "VMware ESXi 8.0.3 build-24859861" → "VMware ESXi 8.0.3"
 function cleanEsxVersion(v) {
@@ -45,11 +66,7 @@ function mapVInfoToVMs(vinfo, hostVersionMap) {
   return vinfo.map((row, i) => ({
     id: Date.now() + i,
     name: row['VM'] || row['Name'] || '',
-    // Real column names include "the": "OS according to the VMware Tools"
-    guest_os: row['OS according to the VMware Tools'] ||
-              row['OS according to the configuration file'] ||
-              row['OS according to VMware Tools'] ||
-              row['OS according to configuration file'] || '',
+    guest_os: getGuestOS(row),
     vcpu: Number(row['CPUs'] || row['CPU'] || 0),
     ram_gb: Math.round(Number(row['Memory'] || 0) / 1024),
     disk_gb: Math.round(Number(row['Total disk capacity MiB'] || row['Provisioned MiB'] || 0) / 1024),

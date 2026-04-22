@@ -227,21 +227,17 @@ const VSNAPSHOT_COLS = [
   { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
 ]
 
+// vHealth actual columns (RVTools): Name, Message, Message type
+// (no VM / Category / Object / Health columns exist in this sheet)
 const VHEALTH_COLS = [
-  { id: 'vm', key: 'VM', label: 'VM / Object', width: 180 },
-  { id: 'cat', key: 'Category', label: 'Category', width: 140 },
-  { id: 'obj', key: 'Object', label: 'Object', width: 200 },
-  { id: 'health', key: 'Health', label: 'Health', width: 100, render: (v) => {
-    const lower = (v || '').toLowerCase()
-    if (lower.includes('error') || lower === 'red')
-      return <span className="text-red-600 font-medium">{v}</span>
-    if (lower.includes('warning') || lower === 'yellow')
-      return <span className="text-yellow-600 font-medium">{v}</span>
-    return <span>{v || '—'}</span>
+  { id: 'name', key: 'Name', label: 'Object / File', width: 320 },
+  { id: 'type', key: 'Message type', label: 'Type', width: 100, render: (v) => {
+    const s = (v || '').toLowerCase()
+    if (s === 'zombie') return <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">{v}</span>
+    if (s === 'warning') return <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">{v}</span>
+    return <span className="text-gray-600 text-xs">{v || '—'}</span>
   }},
-  { id: 'msg', key: 'Message', label: 'Message', width: 340 },
-  { id: 'dc', key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
+  { id: 'msg', key: 'Message', label: 'Message', width: 380 },
 ]
 
 // vLicense: actual column names are "Name", "Key", "Cost Unit", "Total", "Used"
@@ -412,8 +408,8 @@ export default function RVToolsReport() {
       </Section>
 
       {/* vHealth */}
-      <Section title="🏥 Health Warnings" count={vhealth.length} defaultOpen={false}>
-        <DataTable rows={vhealth} columns={VHEALTH_COLS} maxRows={500} />
+      <Section title="🏥 Health Warnings" count={filterRows(vhealth, 'Name').length} defaultOpen={false}>
+        <DataTable rows={filterRows(vhealth, 'Name')} columns={VHEALTH_COLS} maxRows={500} />
       </Section>
 
       {/* vLicense – actual columns: Name, Key, Cost Unit, Total, Used, Expiration Date */}

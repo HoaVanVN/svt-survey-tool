@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import os
 
 from database import engine, Base
@@ -32,12 +33,17 @@ def _run_migrations():
 
 _run_migrations()
 
-app = FastAPI(title="SVT Survey Tool", version="2.1.0")
+app = FastAPI(title="SVT Survey Tool", version="2.1.2")
+
+# Trust X-Forwarded-For / X-Forwarded-Proto headers from Nginx Proxy Manager
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # allow_credentials must be False when allow_origins=["*"]
+    # (browsers reject credentials + wildcard origin over HTTPS)
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -53,7 +59,7 @@ app.include_router(rvtools_router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.0"}
+    return {"status": "ok", "version": "2.1.2"}
 
 @app.get("/api/security-questions")
 def get_questions():
