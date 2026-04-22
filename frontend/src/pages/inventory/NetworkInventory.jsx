@@ -10,7 +10,7 @@ const FIELDS = [
   { key: 'location', label: 'Vị trí', type: 'text', width: 90 },
   { key: 'device_type', label: 'Loại', type: 'select', refType: 'network_device_types', width: 100 },
   { key: 'ip_mgmt', label: 'IP Management', type: 'text', width: 110 },
-  { key: 'end_of_support', label: 'Hết HT (MM/YYYY)', type: 'eos', width: 100 },
+  { key: 'support_until', label: 'Support Until', type: 'eos', width: 95 },
   { key: 'status', label: 'Trạng thái', type: 'select', refType: 'device_statuses', width: 100, default: 'Using' },
   { key: 'notes', label: 'Ghi chú', type: 'text', width: 110 },
 ]

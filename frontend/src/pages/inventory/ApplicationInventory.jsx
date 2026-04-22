@@ -15,7 +15,7 @@ const FIELDS = [
   { key: 'database', label: 'Database', type: 'text', width: 100 },
   { key: 'os', label: 'OS', type: 'select', refType: 'os_list', width: 150 },
   { key: 'criticality', label: 'Criticality', type: 'select', refType: 'criticality_levels', width: 90 },
-  { key: 'support_expiry', label: 'Hết HT (MM/YYYY)', type: 'eos', width: 100 },
+  { key: 'support_until', label: 'Support Until', type: 'eos', width: 95 },
   { key: 'status', label: 'Trạng thái', type: 'select', refType: 'device_statuses', width: 100, default: 'Using' },
   { key: 'notes', label: 'Ghi chú', type: 'text', width: 120 },
 ]

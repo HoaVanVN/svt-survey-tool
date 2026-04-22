@@ -45,6 +45,8 @@ export const ocp = {
   get: (cid) => api.get(`/customers/${cid}/ocp`),
   save: (cid, data) => api.put(`/customers/${cid}/ocp`, data),
   sizing: (cid) => api.get(`/customers/${cid}/ocp/sizing`),
+  virtSizing: (cid) => api.get(`/customers/${cid}/ocp/virt-sizing`),
+  saveVirtWorkloads: (cid, virt_workloads) => api.put(`/customers/${cid}/ocp/virt-workloads`, { virt_workloads }),
 }
 
 export const referenceApi = {

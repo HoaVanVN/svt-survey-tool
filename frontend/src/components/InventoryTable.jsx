@@ -1,10 +1,39 @@
 import React from 'react'
 
+function parseEOS(val) {
+  if (!val || !String(val).trim()) return null
+  const s = String(val).trim()
+  const parts = s.split('/')
+  let year, month
+  if (parts.length === 2) { month = parseInt(parts[0]) - 1; year = parseInt(parts[1]) }
+  else { year = parseInt(parts[0]); month = 11 }
+  if (isNaN(year)) return null
+  return new Date(year, month, 1)
+}
+
+function EOSBadge({ value }) {
+  const d = parseEOS(value)
+  if (!d) return null
+  const oos = d < new Date()
+  return (
+    <span className={`ml-1 px-1 py-0.5 rounded text-[9px] font-semibold ${oos ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+      {oos ? 'OOS' : 'OK'}
+    </span>
+  )
+}
+
 export default function InventoryTable({ fields, items, onChange, refs = {} }) {
   const add = () => {
     const blank = {}
     fields.forEach(f => { blank[f.key] = f.default ?? '' })
     onChange([...items, blank])
+  }
+
+  const clone = (i) => {
+    const copy = { ...items[i], name: (items[i].name || '') + ' (copy)' }
+    const next = [...items]
+    next.splice(i + 1, 0, copy)
+    onChange(next)
   }
 
   const remove = (i) => onChange(items.filter((_, j) => j !== i))
@@ -33,7 +62,7 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
               {fields.map(f => (
                 <th key={f.key} className="table-hdr" style={{ minWidth: f.width || 90 }}>{f.label}</th>
               ))}
-              <th className="table-hdr w-8"></th>
+              <th className="table-hdr w-16 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -60,13 +89,16 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
                         onChange={e => set(i, f.key, e.target.value === '' ? '' : Number(e.target.value))}
                       />
                     ) : f.type === 'eos' ? (
-                      <input
-                        className="border-gray-200 rounded px-1 py-1 border text-xs"
-                        style={{ width: 90 }}
-                        placeholder="YYYY or MM/YYYY"
-                        value={item[f.key] ?? ''}
-                        onChange={e => set(i, f.key, e.target.value)}
-                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          className="border-gray-200 rounded px-1 py-1 border text-xs"
+                          style={{ width: 85 }}
+                          placeholder="MM/YYYY"
+                          value={item[f.key] ?? ''}
+                          onChange={e => set(i, f.key, e.target.value)}
+                        />
+                        <EOSBadge value={item[f.key]} />
+                      </div>
                     ) : (
                       <input
                         className="w-full text-xs border-gray-200 rounded px-1 py-1 border"
@@ -78,7 +110,10 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
                   </td>
                 ))}
                 <td className="table-cell text-center">
-                  <button onClick={() => remove(i)} className="text-red-400 hover:text-red-600">✕</button>
+                  <div className="flex justify-center gap-1.5">
+                    <button onClick={() => clone(i)} className="text-blue-400 hover:text-blue-600" title="Clone">⧉</button>
+                    <button onClick={() => remove(i)} className="text-red-400 hover:text-red-600" title="Xóa">✕</button>
+                  </div>
                 </td>
               </tr>
             ))}

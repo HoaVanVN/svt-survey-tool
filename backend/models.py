@@ -181,6 +181,7 @@ class PhysicalInventory(Base):
     storage_systems = Column(JSON, default=list)
     network_devices = Column(JSON, default=list)
     wifi_aps = Column(JSON, default=list)
+    virtual_machines = Column(JSON, default=list)
     customer = relationship("Customer", back_populates="physical_inventory")
 
 
@@ -243,4 +244,5 @@ class OCPSurvey(Base):
     odf_disk_gb = Column(Integer, default=2048)
 
     pod_namespaces = Column(JSON, default=list)
+    virt_workloads = Column(JSON, default=list)
     customer = relationship("Customer", back_populates="ocp_survey")

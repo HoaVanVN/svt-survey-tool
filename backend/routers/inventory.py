@@ -7,7 +7,7 @@ import models
 
 router = APIRouter(prefix="/customers/{customer_id}/inventory", tags=["inventory"])
 
-CATEGORIES = ["servers", "san_switches", "storage_systems", "network_devices", "wifi_aps"]
+CATEGORIES = ["servers", "san_switches", "storage_systems", "network_devices", "wifi_aps", "virtual_machines"]
 
 
 def _get_or_create_inv(db, customer_id):
@@ -18,7 +18,7 @@ def _get_or_create_inv(db, customer_id):
     if not inv:
         inv = models.PhysicalInventory(customer_id=customer_id,
                                        servers=[], san_switches=[], storage_systems=[],
-                                       network_devices=[], wifi_aps=[])
+                                       network_devices=[], wifi_aps=[], virtual_machines=[])
         db.add(inv)
         db.commit()
         db.refresh(inv)
@@ -58,6 +58,7 @@ def get_all_inventory(customer_id: int, db: Session = Depends(get_db)):
         "storage_systems": inv.storage_systems or [],
         "network_devices": inv.network_devices or [],
         "wifi_aps": inv.wifi_aps or [],
+        "virtual_machines": inv.virtual_machines or [],
         "applications": app_inv.applications or [],
     }
 

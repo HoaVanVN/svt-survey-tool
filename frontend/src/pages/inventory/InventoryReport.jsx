@@ -9,6 +9,7 @@ const SECTION_LABELS = {
   storage_systems: { icon: '💿', label: 'Storage Systems' },
   network_devices: { icon: '🌐', label: 'Network Devices' },
   wifi_aps: { icon: '📶', label: 'WiFi Access Points' },
+  virtual_machines: { icon: '☁️', label: 'Virtual Machines' },
   applications: { icon: '📦', label: 'Applications' },
 }
 
@@ -29,7 +30,7 @@ function parseEOS(val) {
 }
 
 function supportStatus(item) {
-  const eosVal = item.end_of_support || item.support_expiry
+  const eosVal = item.support_until || item.end_of_support || item.support_expiry
   const d = parseEOS(eosVal)
   if (!d) return 'unknown'
   return d < new Date() ? 'eos' : 'supported'
@@ -144,7 +145,7 @@ export default function InventoryReport() {
                         <td className="table-cell font-medium">{item.name || '-'}</td>
                         <td className="table-cell">{item.model || item.version || '-'}</td>
                         <td className="table-cell">{item.vendor || '-'}</td>
-                        <td className="table-cell text-red-600 font-medium">{item.end_of_support || item.support_expiry}</td>
+                        <td className="table-cell text-red-600 font-medium">{item.support_until || item.end_of_support || item.support_expiry}</td>
                         <td className="table-cell">
                           <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700 font-medium">EOS</span>
                         </td>
@@ -190,7 +191,7 @@ export default function InventoryReport() {
                         <td className="table-cell text-center">{item.qty || 1}</td>
                         <td className="table-cell">{item.location || item.environment || '-'}</td>
                         <td className={`table-cell font-medium ${st === 'eos' ? 'text-red-600' : st === 'supported' ? 'text-green-600' : 'text-gray-400'}`}>
-                          {item.end_of_support || item.support_expiry || '—'}
+                          {item.support_until || item.end_of_support || item.support_expiry || '—'}
                         </td>
                         <td className="table-cell">
                           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${

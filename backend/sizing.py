@@ -111,6 +111,62 @@ def calc_backup_sizing(survey: Any, sources: list) -> dict:
     }
 
 
+def calc_ocp_virt_sizing(survey: Any) -> dict:
+    """Size additional OCP worker nodes needed for OpenShift Virtualization VM workloads."""
+    workloads = survey.virt_workloads or []
+    if not workloads:
+        return {"workloads": [], "totals": {}, "additional_workers": 0, "sizing_params": {}}
+
+    total_vcpu = sum(w.get("vm_count", 0) * w.get("vcpu_per_vm", 0) for w in workloads)
+    total_ram_gib = sum(w.get("vm_count", 0) * w.get("ram_gib_per_vm", 0) for w in workloads)
+    total_disk_gb = sum(w.get("vm_count", 0) * w.get("disk_gb_per_vm", 0) for w in workloads)
+
+    # OCP Virt overhead: CPU 1:1 pCPU recommendation, RAM +20% KubeVirt overhead
+    cpu_oh = 0.10
+    ram_oh = 0.20
+    ha_reserve = 0.25
+
+    needed_vcpu = total_vcpu * (1 + cpu_oh) * (1 + ha_reserve)
+    needed_ram_gib = total_ram_gib * (1 + ram_oh) * (1 + ha_reserve)
+
+    worker_vcpu = survey.worker_vcpu or 32
+    worker_ram = survey.worker_ram_gib or 128
+
+    workers_for_cpu = math.ceil(needed_vcpu / worker_vcpu) if worker_vcpu else 0
+    workers_for_ram = math.ceil(needed_ram_gib / worker_ram) if worker_ram else 0
+    additional_workers = max(workers_for_cpu, workers_for_ram, 0)
+
+    gr = (survey.growth_rate_pct or 20) / 100
+    yrs = survey.sizing_years or 3
+    additional_workers_growth = math.ceil(additional_workers * ((1 + gr) ** yrs))
+
+    usable_disk_tb = total_disk_gb / 1024
+    raw_disk_tb_raid5 = usable_disk_tb / 0.75
+    raw_disk_tb_raid6 = usable_disk_tb / 0.66
+
+    return {
+        "workloads": workloads,
+        "totals": {
+            "total_vcpu": total_vcpu,
+            "total_ram_gib": total_ram_gib,
+            "total_disk_gb": total_disk_gb,
+        },
+        "sizing_params": {
+            "needed_vcpu_with_overhead": round(needed_vcpu, 1),
+            "needed_ram_gib_with_overhead": round(needed_ram_gib, 1),
+            "worker_vcpu": worker_vcpu,
+            "worker_ram_gib": worker_ram,
+        },
+        "additional_workers": additional_workers,
+        "additional_workers_with_growth": additional_workers_growth,
+        "storage": {
+            "usable_disk_tb": round(usable_disk_tb, 2),
+            "raw_raid5_tb": round(raw_disk_tb_raid5, 2),
+            "raw_raid6_tb": round(raw_disk_tb_raid6, 2),
+        },
+    }
+
+
 def calc_ocp_sizing(survey: Any) -> dict:
     gr = (survey.growth_rate_pct or 20) / 100
     yrs = survey.sizing_years or 3

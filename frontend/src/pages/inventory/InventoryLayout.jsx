@@ -8,6 +8,7 @@ const TABS = [
   { path: 'storage', label: '💿 Storage' },
   { path: 'network-devices', label: '🌐 Network' },
   { path: 'wifi', label: '📶 WiFi APs' },
+  { path: 'vms', label: '☁️ Virtual Machines' },
   { path: 'applications', label: '📦 Applications' },
   { path: 'report', label: '📋 Báo cáo' },
 ]

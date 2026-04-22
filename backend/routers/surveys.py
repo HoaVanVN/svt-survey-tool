@@ -213,3 +213,26 @@ def get_ocp_sizing(customer_id: int, db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(status_code=404, detail="OCP survey not found")
     return sizing.calc_ocp_sizing(s)
+
+
+@router.get("/ocp/virt-sizing")
+def get_ocp_virt_sizing(customer_id: int, db: Session = Depends(get_db)):
+    get_or_404(db, customer_id)
+    s = db.query(models.OCPSurvey).filter(models.OCPSurvey.customer_id == customer_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="OCP survey not found")
+    return sizing.calc_ocp_virt_sizing(s)
+
+
+@router.put("/ocp/virt-workloads")
+def save_ocp_virt_workloads(customer_id: int, data: dict, db: Session = Depends(get_db)):
+    from typing import List, Any
+    get_or_404(db, customer_id)
+    s = db.query(models.OCPSurvey).filter(models.OCPSurvey.customer_id == customer_id).first()
+    if not s:
+        s = models.OCPSurvey(customer_id=customer_id)
+        db.add(s)
+    s.virt_workloads = data.get("virt_workloads", [])
+    db.commit()
+    db.refresh(s)
+    return {"virt_workloads": s.virt_workloads}

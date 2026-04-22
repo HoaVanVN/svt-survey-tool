@@ -13,7 +13,25 @@ from routers.reference import router as reference_router
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SVT Survey Tool", version="2.0.2")
+# SQLite column migrations for new columns added after initial schema
+def _run_migrations():
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE physical_inventories ADD COLUMN virtual_machines TEXT DEFAULT '[]'",
+        "ALTER TABLE ocp_surveys ADD COLUMN virt_workloads TEXT DEFAULT '[]'",
+        "ALTER TABLE reference_data ADD COLUMN updated_at DATETIME",
+    ]
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
+_run_migrations()
+
+app = FastAPI(title="SVT Survey Tool", version="2.0.3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,7 +51,7 @@ app.include_router(reference_router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.0.2"}
+    return {"status": "ok", "version": "2.0.3"}
 
 @app.get("/api/security-questions")
 def get_questions():

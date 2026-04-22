@@ -21,6 +21,8 @@ import SecuritySurvey from './pages/SecuritySurvey'
 import OCPSurvey from './pages/OCPSurvey'
 import SizingResults from './pages/SizingResults'
 import SizingReport from './pages/sizing/SizingReport'
+import OCPVirtSizing from './pages/sizing/OCPVirtSizing'
+import VMInventory from './pages/inventory/VMInventory'
 
 export default function App() {
   return (
@@ -47,6 +49,7 @@ export default function App() {
               <Route path="storage" element={<StorageInventory />} />
               <Route path="network-devices" element={<NetworkInventory />} />
               <Route path="wifi" element={<WiFiInventory />} />
+              <Route path="vms" element={<VMInventory />} />
               <Route path="applications" element={<ApplicationInventory />} />
               <Route path="report" element={<InventoryReport />} />
             </Route>
@@ -57,6 +60,7 @@ export default function App() {
               <Route path="backup" element={<BackupSurvey />} />
               <Route path="security" element={<SecuritySurvey />} />
               <Route path="ocp" element={<OCPSurvey />} />
+              <Route path="ocp-virt" element={<OCPVirtSizing />} />
               <Route path="results" element={<SizingResults />} />
               <Route path="report" element={<SizingReport />} />
             </Route>

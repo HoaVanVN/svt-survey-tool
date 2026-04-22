@@ -11,7 +11,7 @@ const FIELDS = [
   { key: 'storage_type', label: 'Loại', type: 'select', refType: 'storage_types', width: 95 },
   { key: 'raw_capacity_tb', label: 'Raw (TB)', type: 'number', width: 75 },
   { key: 'usable_capacity_tb', label: 'Usable (TB)', type: 'number', width: 80 },
-  { key: 'end_of_support', label: 'Hết HT (MM/YYYY)', type: 'eos', width: 100 },
+  { key: 'support_until', label: 'Support Until', type: 'eos', width: 95 },
   { key: 'status', label: 'Trạng thái', type: 'select', refType: 'device_statuses', width: 100, default: 'Using' },
   { key: 'notes', label: 'Ghi chú', type: 'text', width: 110 },
 ]
