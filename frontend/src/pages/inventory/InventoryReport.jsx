@@ -3,13 +3,13 @@ import { useParams } from 'react-router-dom'
 import { inventory as api, exportApi } from '../../api'
 import DonutChart from '../../components/DonutChart'
 
+// virtual_machines is intentionally excluded — VMs are tracked separately in ☁️ VM Inventory
 const SECTION_LABELS = {
   servers: { icon: '🖥️', label: 'Physical Servers' },
   san_switches: { icon: '🔀', label: 'SAN Switches' },
   storage_systems: { icon: '💿', label: 'Storage Systems' },
   network_devices: { icon: '🌐', label: 'Network Devices' },
   wifi_aps: { icon: '📶', label: 'WiFi Access Points' },
-  virtual_machines: { icon: '☁️', label: 'Virtual Machines' },
   applications: { icon: '📦', label: 'Applications' },
 }
 
@@ -44,15 +44,16 @@ export default function InventoryReport() {
     api.getAll(id).then(r => setSummary(r.data)).catch(() => {})
   }, [id])
 
+  // Only count categories in SECTION_LABELS (excludes virtual_machines)
   const total = summary
-    ? Object.values(summary).reduce((s, arr) => s + (arr?.length || 0), 0)
+    ? Object.keys(SECTION_LABELS).reduce((s, k) => s + (summary[k]?.length || 0), 0)
     : 0
 
-  // Support status breakdown
+  // Support status breakdown — only physical/application inventory (excludes VMs)
   const supportStats = { supported: 0, eos: 0, unknown: 0 }
   if (summary) {
-    Object.values(summary).forEach(arr => {
-      (arr || []).forEach(item => {
+    Object.keys(SECTION_LABELS).forEach(k => {
+      (summary[k] || []).forEach(item => {
         supportStats[supportStatus(item)]++
       })
     })

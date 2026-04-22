@@ -6,17 +6,17 @@ import { useRefs } from '../../hooks/useRefs'
 import InventoryTable from '../../components/InventoryTable'
 
 const FIELDS = [
-  { key: 'name', label: 'Tên VM', type: 'text', width: 130 },
-  { key: 'guest_os', label: 'Guest OS', type: 'select', refType: 'os_list', width: 150 },
+  { key: 'name', label: 'Tên VM', type: 'text', width: 140 },
+  { key: 'guest_os', label: 'Guest OS', type: 'select', refType: 'os_list', width: 160 },
   { key: 'vcpu', label: 'vCPU', type: 'number', width: 55 },
   { key: 'ram_gb', label: 'RAM (GB)', type: 'number', width: 70 },
   { key: 'disk_gb', label: 'Disk (GB)', type: 'number', width: 70 },
-  { key: 'host_server', label: 'Host / Cluster', type: 'text', width: 120 },
+  { key: 'cluster', label: 'Cluster', type: 'text', width: 110 },
+  { key: 'host_server', label: 'Host', type: 'text', width: 130 },
   { key: 'datastore', label: 'Datastore', type: 'text', width: 110 },
-  { key: 'hypervisor', label: 'Hypervisor', type: 'select', refType: 'hypervisors', width: 130 },
+  { key: 'hypervisor', label: 'Hypervisor', type: 'text', width: 160 },
   { key: 'environment', label: 'Môi trường', type: 'select', refType: 'environments', width: 100 },
   { key: 'power_state', label: 'Power', type: 'select', width: 80, options: ['On', 'Off', 'Suspended'] },
-  { key: 'support_until', label: 'Support Until', type: 'eos', width: 95 },
   { key: 'status', label: 'Trạng thái', type: 'select', refType: 'device_statuses', width: 100, default: 'Using' },
   { key: 'notes', label: 'Ghi chú', type: 'text', width: 110 },
 ]
@@ -29,34 +29,39 @@ function mapPowerState(ps) {
   return ps || ''
 }
 
-function mapVInfoToVMs(vinfo) {
-  return vinfo.map((row, i) => {
-    const cluster = row['Cluster'] || ''
-    const host = row['Host'] || ''
-    const hostCluster = cluster && host
-      ? `${cluster} / ${host}`
-      : cluster || host
+// Extract datastore name from RVTools Path field: "[datastore_name] vm/vm.vmx"
+function extractDatastore(path) {
+  const m = (path || '').match(/^\[([^\]]+)\]/)
+  return m ? m[1] : ''
+}
 
-    const datastores = row['Datastore(s)'] || row['Datastores'] || row['Datastore'] || ''
-    const firstDS = datastores.toString().split(',')[0].trim()
+// Strip build number from ESX version string
+// "VMware ESXi 8.0.3 build-24859861" → "VMware ESXi 8.0.3"
+function cleanEsxVersion(v) {
+  return (v || '').replace(/\s+build-\S+/i, '').trim()
+}
 
-    return {
-      id: Date.now() + i,
-      name: row['VM'] || row['Name'] || '',
-      guest_os: row['OS according to VMware Tools'] || row['OS according to configuration file'] || '',
-      vcpu: Number(row['CPUs'] || row['CPU'] || 0),
-      ram_gb: Math.round(Number(row['Memory'] || row['Memory (MiB)'] || 0) / 1024),
-      disk_gb: Math.round(Number(row['Total disk capacity MiB'] || row['Provisioned MiB'] || 0) / 1024),
-      host_server: hostCluster,
-      datastore: firstDS,
-      hypervisor: 'VMware vSphere',
-      environment: '',
-      power_state: mapPowerState(row['Powerstate'] || row['Power state'] || ''),
-      support_until: '',
-      status: 'Using',
-      notes: row['Annotation'] || row['Description'] || '',
-    }
-  })
+function mapVInfoToVMs(vinfo, hostVersionMap) {
+  return vinfo.map((row, i) => ({
+    id: Date.now() + i,
+    name: row['VM'] || row['Name'] || '',
+    // Real column names include "the": "OS according to the VMware Tools"
+    guest_os: row['OS according to the VMware Tools'] ||
+              row['OS according to the configuration file'] ||
+              row['OS according to VMware Tools'] ||
+              row['OS according to configuration file'] || '',
+    vcpu: Number(row['CPUs'] || row['CPU'] || 0),
+    ram_gb: Math.round(Number(row['Memory'] || 0) / 1024),
+    disk_gb: Math.round(Number(row['Total disk capacity MiB'] || row['Provisioned MiB'] || 0) / 1024),
+    cluster: row['Cluster'] || '',
+    host_server: row['Host'] || '',
+    datastore: extractDatastore(row['Path']) || '',
+    hypervisor: cleanEsxVersion(hostVersionMap?.[row['Host']]) || 'VMware vSphere',
+    environment: '',
+    power_state: mapPowerState(row['Powerstate'] || ''),
+    status: 'Using',
+    notes: row['Annotation'] || '',
+  }))
 }
 
 export default function VMInventory() {
@@ -118,14 +123,18 @@ export default function VMInventory() {
         return
       }
 
+      // Build host → ESX version lookup (ESX Version column from vHost sheet)
+      const hostVersionMap = {}
+      vhost.forEach(r => {
+        if (r['Host']) hostVersionMap[r['Host']] = r['ESX Version'] || ''
+      })
+
       const poweredOn = vinfo.filter(r =>
         (r['Powerstate'] || '').toLowerCase() === 'poweredon'
       ).length
       const totalVcpu = vinfo.reduce((s, r) => s + Number(r['CPUs'] || 0), 0)
-      const totalRamMiB = vinfo.reduce((s, r) =>
-        s + Number(r['Memory'] || r['Memory (MiB)'] || 0), 0)
-      const totalDiskMiB = vinfo.reduce((s, r) =>
-        s + Number(r['Total disk capacity MiB'] || 0), 0)
+      const totalRamMiB = vinfo.reduce((s, r) => s + Number(r['Memory'] || 0), 0)
+      const totalDiskMiB = vinfo.reduce((s, r) => s + Number(r['Total disk capacity MiB'] || 0), 0)
 
       const summary = {
         total_vms: vinfo.length,
@@ -147,7 +156,7 @@ export default function VMInventory() {
         summary,
       })
 
-      const vms = mapVInfoToVMs(vinfo)
+      const vms = mapVInfoToVMs(vinfo, hostVersionMap)
       setItems(vms)
       await inventoryApi.saveCategory(id, 'virtual_machines', vms)
       setRvtoolsInfo({ exists: true, source_filename: file.name })

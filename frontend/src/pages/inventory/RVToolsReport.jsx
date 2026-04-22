@@ -4,15 +4,15 @@ import { rvtools as rvtoolsApi } from '../../api'
 
 function mibToGib(v) {
   const n = Number(v)
-  return isNaN(n) ? 0 : Math.round(n / 1024 * 10) / 10
-}
-function mibToTb(v) {
-  const n = Number(v)
-  return isNaN(n) ? 0 : Math.round(n / 1024 / 1024 * 100) / 100
+  return isNaN(n) || n === 0 ? 0 : Math.round(n / 1024 * 10) / 10
 }
 function fmtNum(v) {
   if (v === '' || v === null || v === undefined) return '—'
   return Number(v).toLocaleString()
+}
+function fmtGib(v) {
+  const g = mibToGib(v)
+  return g > 0 ? g.toLocaleString() : '—'
 }
 
 function SummaryCard({ icon, label, value, sub, color = 'blue' }) {
@@ -43,19 +43,31 @@ function PowerBadge({ state }) {
     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">● Off</span>
   )
   if (s === 'suspended') return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">● Suspended</span>
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">● Susp</span>
   )
   return <span className="text-gray-400 text-xs">{state || '—'}</span>
+}
+
+function StatusBadge({ value }) {
+  const s = (value || '').toLowerCase()
+  if (s === 'green') return <span className="text-green-600 font-medium">● OK</span>
+  if (s === 'red') return <span className="text-red-600 font-medium">● Error</span>
+  if (s === 'yellow' || s === 'warning') return <span className="text-yellow-600 font-medium">● Warn</span>
+  if (s === 'gray' || s === 'grey') return <span className="text-gray-400">● Unknown</span>
+  return <span>{value || '—'}</span>
 }
 
 function DataTable({ rows, columns, maxRows = 500 }) {
   const [page, setPage] = useState(0)
   const pageSize = 50
-  const total = Math.min(rows.length, maxRows)
+  const displayRows = rows.slice(0, maxRows)
+  const total = displayRows.length
   const pages = Math.ceil(total / pageSize)
-  const slice = rows.slice(page * pageSize, page * pageSize + pageSize)
+  const slice = displayRows.slice(page * pageSize, page * pageSize + pageSize)
 
-  if (!rows.length) return <p className="text-sm text-gray-400 italic py-4 text-center">Không có dữ liệu</p>
+  if (!rows.length) return (
+    <p className="text-sm text-gray-400 italic py-4 text-center">Không có dữ liệu</p>
+  )
 
   return (
     <div>
@@ -69,8 +81,11 @@ function DataTable({ rows, columns, maxRows = 500 }) {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               {columns.map(c => (
-                <th key={c.key} className="px-2 py-1.5 text-left font-semibold text-gray-600 whitespace-nowrap"
-                  style={c.width ? { minWidth: c.width } : {}}>
+                <th
+                  key={c.id || c.label}
+                  className="px-2 py-1.5 text-left font-semibold text-gray-600 whitespace-nowrap"
+                  style={c.width ? { minWidth: c.width } : {}}
+                >
                   {c.label}
                 </th>
               ))}
@@ -80,8 +95,10 @@ function DataTable({ rows, columns, maxRows = 500 }) {
             {slice.map((row, i) => (
               <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                 {columns.map(c => (
-                  <td key={c.key} className="px-2 py-1 text-gray-700 whitespace-nowrap">
-                    {c.render ? c.render(row[c.key], row) : (row[c.key] ?? '—') || '—'}
+                  <td key={c.id || c.label} className="px-2 py-1 text-gray-700 whitespace-nowrap">
+                    {c.render
+                      ? c.render(row[c.key], row)
+                      : ((row[c.key] ?? '') !== '' ? row[c.key] : '—')}
                   </td>
                 ))}
               </tr>
@@ -129,108 +146,116 @@ function Section({ title, count, children, defaultOpen = true }) {
 
 /* ── Column definitions per sheet ── */
 
+// vInfo: actual RVTools column names (note "the" in OS columns)
 const VINFO_COLS = [
-  { key: 'VM', label: 'VM Name', width: 150 },
-  { key: 'Powerstate', label: 'Power', render: (v) => <PowerBadge state={v} /> },
-  { key: 'CPUs', label: 'vCPU', width: 55 },
-  { key: 'Memory', label: 'RAM (GiB)', render: (v) => mibToGib(v) },
-  { key: 'Total disk capacity MiB', label: 'Disk (GiB)', render: (v) => mibToGib(v) },
-  { key: 'OS according to VMware Tools', label: 'Guest OS', width: 200 },
-  { key: 'Primary IP Address', label: 'IP Address', width: 130 },
-  { key: 'Cluster', label: 'Cluster', width: 120 },
-  { key: 'Host', label: 'Host', width: 140 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
+  { id: 'vm', key: 'VM', label: 'VM Name', width: 160 },
+  { id: 'power', key: 'Powerstate', label: 'Power', render: (v) => <PowerBadge state={v} /> },
+  { id: 'cpu', key: 'CPUs', label: 'vCPU', width: 50 },
+  { id: 'ram', key: 'Memory', label: 'RAM (GiB)', render: (v) => fmtGib(v) },
+  { id: 'disk', key: 'Total disk capacity MiB', label: 'Disk (GiB)', render: (v) => fmtGib(v) },
+  { id: 'os', key: 'OS according to the VMware Tools', label: 'Guest OS (Tools)', width: 200 },
+  { id: 'os_cfg', key: 'OS according to the configuration file', label: 'Guest OS (Config)', width: 200 },
+  { id: 'ip', key: 'Primary IP Address', label: 'IP Address', width: 130 },
+  { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
+  { id: 'host', key: 'Host', label: 'Host', width: 140 },
+  { id: 'dc', key: 'Datacenter', label: 'Datacenter', width: 100 },
 ]
 
+// vHost: actual column names (# Memory for RAM, ESX Version for version, Cores per CPU)
 const VHOST_COLS = [
-  { key: 'Host', label: 'Hostname', width: 150 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { key: 'Cluster', label: 'Cluster', width: 120 },
-  { key: 'CPU Model', label: 'CPU Model', width: 200 },
-  { key: '# CPU', label: 'Sockets', width: 65 },
-  { key: '# Cores', label: 'Cores', width: 60 },
-  { key: '# Logical CPUs', label: 'Threads', width: 65 },
-  { key: 'Memory Size MiB', label: 'RAM (GiB)', render: (v) => mibToGib(v) },
-  { key: '# VMs', label: '# VMs', width: 55 },
-  { key: 'ESXi Version', label: 'ESXi Version', width: 120 },
-  { key: 'Connection State', label: 'State', width: 100 },
+  { id: 'host', key: 'Host', label: 'Hostname', width: 140 },
+  { id: 'dc', key: 'Datacenter', label: 'Datacenter', width: 100 },
+  { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
+  { id: 'vendor', key: 'Vendor', label: 'Vendor', width: 80 },
+  { id: 'model', key: 'Model', label: 'Model', width: 180 },
+  { id: 'cpu_model', key: 'CPU Model', label: 'CPU Model', width: 220 },
+  { id: 'sockets', key: '# CPU', label: 'Sockets', width: 60 },
+  { id: 'cores_per', key: 'Cores per CPU', label: 'Cores/Socket', width: 90 },
+  { id: 'cores', key: '# Cores', label: 'Total Cores', width: 80 },
+  // # Memory column is in MiB
+  { id: 'ram', key: '# Memory', label: 'RAM (GiB)', render: (v) => fmtGib(v) },
+  { id: 'vms', key: '# VMs', label: '# VMs', width: 55 },
+  { id: 'esx', key: 'ESX Version', label: 'ESXi Version', width: 220 },
+  { id: 'status', key: 'Config status', label: 'Status', render: (v) => <StatusBadge value={v} /> },
 ]
 
 const VCLUSTER_COLS = [
-  { key: 'Name', label: 'Cluster', width: 150 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { key: '# Hosts', label: '# Hosts', width: 65 },
-  { key: '# CPU', label: '# vCPU', width: 65 },
-  { key: '# Cores', label: '# Cores', width: 65 },
-  { key: 'Memory Size MiB', label: 'Total RAM (GiB)', render: (v) => mibToGib(v) },
-  { key: 'HA Enabled', label: 'HA', width: 60 },
-  { key: 'DRS Enabled', label: 'DRS', width: 60 },
-  { key: 'DRS Default VM Behavior', label: 'DRS Mode', width: 120 },
-  { key: '# VMs', label: '# VMs', width: 55 },
+  { id: 'name', key: 'Name', label: 'Cluster', width: 150 },
+  { id: 'dc', key: 'Datacenter', label: 'Datacenter', width: 100 },
+  { id: 'hosts', key: '# Hosts', label: '# Hosts', width: 65 },
+  { id: 'cpu', key: '# CPU', label: '# Sockets', width: 70 },
+  { id: 'cores', key: '# Cores', label: '# Cores', width: 65 },
+  { id: 'vcpu', key: '# vCPUs', label: '# vCPUs', width: 65 },
+  // vCluster Memory Size column – try both "Memory Size MiB" and "Total Memory MiB"
+  { id: 'ram', key: 'Memory Size MiB', label: 'Total RAM (GiB)', render: (v, row) => {
+    const val = v || row['Total Memory MiB'] || row['# Memory']
+    return fmtGib(val)
+  }},
+  { id: 'ha', key: 'HA Enabled', label: 'HA', width: 60 },
+  { id: 'drs', key: 'DRS Enabled', label: 'DRS', width: 60 },
+  { id: 'drs_mode', key: 'DRS Default VM Behavior', label: 'DRS Mode', width: 120 },
+  { id: 'vms', key: '# VMs', label: '# VMs', width: 55 },
 ]
 
+// vDatastore: actual column is "Free MiB" (NOT "Free Space MiB")
 const VDATASTORE_COLS = [
-  { key: 'Name', label: 'Datastore', width: 180 },
-  { key: 'Type', label: 'Type', width: 70 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { key: 'Capacity MiB', label: 'Capacity (GiB)', render: (v) => mibToGib(v) },
-  { key: 'Free Space MiB', label: 'Free (GiB)', render: (v) => mibToGib(v) },
-  {
-    key: 'Free Space MiB',
-    label: 'Used %',
-    render: (v, row) => {
-      const cap = Number(row['Capacity MiB'] || 0)
-      const free = Number(v || 0)
-      if (!cap) return '—'
-      const pct = Math.round((cap - free) / cap * 100)
-      const color = pct > 85 ? 'text-red-600' : pct > 70 ? 'text-orange-500' : 'text-green-600'
-      return <span className={`font-medium ${color}`}>{pct}%</span>
-    }
-  },
-  { key: '# VMs', label: '# VMs', width: 55 },
-  { key: 'URL', label: 'URL', width: 200 },
+  { id: 'name', key: 'Name', label: 'Datastore', width: 180 },
+  { id: 'type', key: 'Type', label: 'Type', width: 65 },
+  { id: 'cluster', key: 'Cluster name', label: 'Cluster', width: 110 },
+  { id: 'cap', key: 'Capacity MiB', label: 'Capacity (GiB)', render: (v) => fmtGib(v) },
+  { id: 'inuse', key: 'In Use MiB', label: 'In Use (GiB)', render: (v) => fmtGib(v) },
+  // Free MiB is the correct column name in RVTools
+  { id: 'free', key: 'Free MiB', label: 'Free (GiB)', render: (v) => fmtGib(v) },
+  { id: 'free_pct', key: 'Free %', label: 'Free %', render: (v) => {
+    if (v === '' || v === undefined) return '—'
+    const n = Number(v)
+    const used = 100 - n
+    const color = used > 85 ? 'text-red-600' : used > 70 ? 'text-orange-500' : 'text-green-600'
+    return <span className={`font-medium ${color}`}>{used}% used</span>
+  }},
+  { id: 'vms', key: '# VMs', label: '# VMs', width: 55 },
 ]
 
 const VSNAPSHOT_COLS = [
-  { key: 'VM', label: 'VM Name', width: 150 },
-  { key: 'Name', label: 'Snapshot Name', width: 150 },
-  { key: 'Description', label: 'Description', width: 200 },
-  { key: 'Created', label: 'Created', width: 150 },
-  { key: 'Size MiB', label: 'Size (GiB)', render: (v) => mibToGib(v) },
-  { key: 'Quiesced', label: 'Quiesced', width: 80 },
-  { key: 'State', label: 'State', width: 80 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { key: 'Cluster', label: 'Cluster', width: 120 },
+  { id: 'vm', key: 'VM', label: 'VM Name', width: 160 },
+  { id: 'name', key: 'Name', label: 'Snapshot Name', width: 150 },
+  { id: 'desc', key: 'Description', label: 'Description', width: 200 },
+  { id: 'created', key: 'Created', label: 'Created', width: 150 },
+  { id: 'size', key: 'Size MiB', label: 'Size (GiB)', render: (v) => fmtGib(v) },
+  { id: 'quiesced', key: 'Quiesced', label: 'Quiesced', width: 75 },
+  { id: 'state', key: 'State', label: 'State', width: 80 },
+  { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
 ]
 
 const VHEALTH_COLS = [
-  { key: 'VM', label: 'VM / Object', width: 180 },
-  { key: 'Category', label: 'Category', width: 140 },
-  { key: 'Object', label: 'Object', width: 200 },
-  { key: 'Health', label: 'Health', width: 100, render: (v) => {
+  { id: 'vm', key: 'VM', label: 'VM / Object', width: 180 },
+  { id: 'cat', key: 'Category', label: 'Category', width: 140 },
+  { id: 'obj', key: 'Object', label: 'Object', width: 200 },
+  { id: 'health', key: 'Health', label: 'Health', width: 100, render: (v) => {
     const lower = (v || '').toLowerCase()
-    if (lower.includes('error') || lower.includes('red')) return <span className="text-red-600 font-medium">{v}</span>
-    if (lower.includes('warning') || lower.includes('yellow')) return <span className="text-yellow-600 font-medium">{v}</span>
+    if (lower.includes('error') || lower === 'red')
+      return <span className="text-red-600 font-medium">{v}</span>
+    if (lower.includes('warning') || lower === 'yellow')
+      return <span className="text-yellow-600 font-medium">{v}</span>
     return <span>{v || '—'}</span>
   }},
-  { key: 'Message', label: 'Message', width: 300 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
-  { key: 'Cluster', label: 'Cluster', width: 120 },
+  { id: 'msg', key: 'Message', label: 'Message', width: 340 },
+  { id: 'dc', key: 'Datacenter', label: 'Datacenter', width: 100 },
+  { id: 'cluster', key: 'Cluster', label: 'Cluster', width: 120 },
 ]
 
+// vLicense: actual column names are "Name", "Key", "Cost Unit", "Total", "Used"
 const VLICENSE_COLS = [
-  { key: 'Product', label: 'Product', width: 200 },
-  { key: 'Edition', label: 'Edition', width: 200 },
-  { key: 'License Key', label: 'License Key', width: 200 },
-  { key: 'Used', label: 'Used', width: 60 },
-  { key: 'Total', label: 'Total', width: 60 },
-  { key: 'Expiration Date', label: 'Expiration', width: 120 },
-  { key: 'Datacenter', label: 'Datacenter', width: 100 },
+  { id: 'name', key: 'Name', label: 'Product / License Name', width: 240 },
+  { id: 'unit', key: 'Cost Unit', label: 'Unit', width: 100 },
+  { id: 'total', key: 'Total', label: 'Total', width: 80 },
+  { id: 'used', key: 'Used', label: 'Used', width: 70 },
+  { id: 'exp', key: 'Expiration Date', label: 'Expiration', width: 110 },
+  { id: 'key', key: 'Key', label: 'License Key', width: 220 },
 ]
 
-/* ── filter rows that actually have data in first key column ── */
 function filterRows(rows, key) {
-  return rows.filter(r => r[key] !== '' && r[key] !== undefined)
+  return rows.filter(r => r[key] !== '' && r[key] !== undefined && r[key] !== null)
 }
 
 export default function RVToolsReport() {
@@ -281,8 +306,9 @@ export default function RVToolsReport() {
   const vhealth = data.vhealth || []
   const vlicense = data.vlicense || []
 
+  // Use correct column name "Free MiB"
   const totalDsCapGib = vdatastore.reduce((acc, r) => acc + Number(r['Capacity MiB'] || 0) / 1024, 0)
-  const totalDsFreeGib = vdatastore.reduce((acc, r) => acc + Number(r['Free Space MiB'] || 0) / 1024, 0)
+  const totalDsFreeGib = vdatastore.reduce((acc, r) => acc + Number(r['Free MiB'] || 0) / 1024, 0)
   const totalSnapshotGib = vsnapshot.reduce((acc, r) => acc + Number(r['Size MiB'] || 0) / 1024, 0)
 
   return (
@@ -299,16 +325,13 @@ export default function RVToolsReport() {
               )}
             </p>
           </div>
-          <Link
-            to={`/customers/${id}/inventory/vms`}
-            className="btn-secondary text-xs"
-          >
+          <Link to={`/customers/${id}/inventory/vms`} className="btn-secondary text-xs">
             ☁️ VM Inventory
           </Link>
         </div>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary cards – row 1 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <SummaryCard icon="🖥️" label="Total VMs" value={fmtNum(s.total_vms)} color="blue" />
         <SummaryCard icon="✅" label="Powered On" value={fmtNum(s.powered_on)} color="green" />
@@ -318,6 +341,7 @@ export default function RVToolsReport() {
         <SummaryCard icon="💿" label="Total Disk" value={`${s.total_disk_tb ?? 0} TB`} color="gray" />
       </div>
 
+      {/* Summary cards – row 2 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <SummaryCard icon="🗄️" label="ESXi Hosts" value={fmtNum(s.host_count ?? vhost.length)} color="blue" />
         <SummaryCard icon="🔗" label="Clusters" value={fmtNum(s.cluster_count ?? vcluster.length)} color="blue" />
@@ -325,7 +349,7 @@ export default function RVToolsReport() {
           icon="💿"
           label="Datastores"
           value={fmtNum(s.datastore_count ?? vdatastore.length)}
-          sub={totalDsCapGib > 0 ? `${Math.round(totalDsCapGib)} GiB total` : undefined}
+          sub={totalDsCapGib > 0 ? `${Math.round(totalDsCapGib).toLocaleString()} GiB total` : undefined}
           color="blue"
         />
         <SummaryCard
@@ -336,44 +360,49 @@ export default function RVToolsReport() {
           color="orange"
         />
       </div>
+
       {s.health_warning_count > 0 && (
         <div className="card !py-2 bg-amber-50 border border-amber-200">
           <p className="text-sm text-amber-800 font-medium">
-            ⚠️ {fmtNum(s.health_warning_count)} health warnings found in vHealth sheet
+            ⚠️ {fmtNum(s.health_warning_count)} health warnings found — check vHealth section below
           </p>
         </div>
       )}
 
       {/* vInfo – VM List */}
-      <Section title="🖥️ Virtual Machines" count={vinfo.length}>
+      <Section title="🖥️ Virtual Machines" count={filterRows(vinfo, 'VM').length}>
         <DataTable rows={filterRows(vinfo, 'VM')} columns={VINFO_COLS} maxRows={1000} />
       </Section>
 
       {/* vHost */}
-      <Section title="🗄️ ESXi Hosts" count={vhost.length}>
+      <Section title="🗄️ ESXi Hosts" count={filterRows(vhost, 'Host').length}>
         <DataTable rows={filterRows(vhost, 'Host')} columns={VHOST_COLS} />
       </Section>
 
       {/* vCluster */}
-      <Section title="🔗 Clusters" count={vcluster.length}>
+      <Section title="🔗 Clusters" count={filterRows(vcluster, 'Name').length}>
         <DataTable rows={filterRows(vcluster, 'Name')} columns={VCLUSTER_COLS} />
       </Section>
 
       {/* vDatastore */}
-      <Section title="💿 Datastores" count={vdatastore.length}>
+      <Section title="💿 Datastores" count={filterRows(vdatastore, 'Name').length}>
         <DataTable rows={filterRows(vdatastore, 'Name')} columns={VDATASTORE_COLS} />
         {totalDsCapGib > 0 && (
-          <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
-            <span>Total capacity: <strong>{Math.round(totalDsCapGib).toLocaleString()} GiB</strong></span>
+          <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600 border-t border-gray-100 pt-3">
+            <span>Total: <strong>{Math.round(totalDsCapGib).toLocaleString()} GiB</strong></span>
             <span>Used: <strong>{Math.round(totalDsCapGib - totalDsFreeGib).toLocaleString()} GiB</strong></span>
             <span>Free: <strong>{Math.round(totalDsFreeGib).toLocaleString()} GiB</strong></span>
-            <span>Utilization: <strong>{totalDsCapGib > 0 ? Math.round((totalDsCapGib - totalDsFreeGib) / totalDsCapGib * 100) : 0}%</strong></span>
+            <span>Utilization: <strong>
+              {totalDsCapGib > 0
+                ? Math.round((totalDsCapGib - totalDsFreeGib) / totalDsCapGib * 100)
+                : 0}%
+            </strong></span>
           </div>
         )}
       </Section>
 
       {/* vSnapshot */}
-      <Section title="📷 Snapshots" count={vsnapshot.length} defaultOpen={false}>
+      <Section title="📷 Snapshots" count={filterRows(vsnapshot, 'VM').length} defaultOpen={false}>
         {totalSnapshotGib > 0 && (
           <p className="text-sm text-amber-700 mb-2 font-medium">
             ⚠️ Total snapshot size: {Math.round(totalSnapshotGib).toLocaleString()} GiB — consider cleanup
@@ -387,9 +416,9 @@ export default function RVToolsReport() {
         <DataTable rows={vhealth} columns={VHEALTH_COLS} maxRows={500} />
       </Section>
 
-      {/* vLicense */}
-      <Section title="🔑 Licenses" count={vlicense.length} defaultOpen={false}>
-        <DataTable rows={filterRows(vlicense, 'Product')} columns={VLICENSE_COLS} />
+      {/* vLicense – actual columns: Name, Key, Cost Unit, Total, Used, Expiration Date */}
+      <Section title="🔑 Licenses" count={filterRows(vlicense, 'Name').length} defaultOpen={false}>
+        <DataTable rows={filterRows(vlicense, 'Name')} columns={VLICENSE_COLS} />
       </Section>
     </div>
   )
