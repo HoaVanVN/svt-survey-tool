@@ -11,6 +11,7 @@ const TABS = [
   { path: 'vms', label: '☁️ Virtual Machines' },
   { path: 'applications', label: '📦 Applications' },
   { path: 'report', label: '📋 Báo cáo' },
+  { path: 'rvtools-report', label: '📊 RVTools' },
 ]
 
 export default function InventoryLayout() {

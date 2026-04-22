@@ -56,6 +56,12 @@ export const referenceApi = {
   reset: (refType) => api.delete(`/reference/${refType}`),
 }
 
+export const rvtools = {
+  get: (cid) => api.get(`/customers/${cid}/rvtools`),
+  save: (cid, data) => api.put(`/customers/${cid}/rvtools`, data),
+  delete: (cid) => api.delete(`/customers/${cid}/rvtools`),
+}
+
 export const exportApi = {
   excel: (cid, name) => {
     const a = document.createElement('a')

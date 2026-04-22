@@ -25,6 +25,7 @@ class Customer(Base):
     application_inventory = relationship("ApplicationInventory", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     security_survey = relationship("SecuritySurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
     ocp_survey = relationship("OCPSurvey", back_populates="customer", uselist=False, cascade="all, delete-orphan")
+    rvtools_data = relationship("RVToolsData", back_populates="customer", uselist=False, cascade="all, delete-orphan")
 
 
 class WorkloadSurvey(Base):
@@ -207,6 +208,24 @@ class ReferenceData(Base):
     ref_type = Column(String(100), unique=True, nullable=False)
     items = Column(JSON, default=list)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class RVToolsData(Base):
+    __tablename__ = "rvtools_data"
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), unique=True)
+    source_filename = Column(String(255))
+    imported_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    vinfo = Column(JSON, default=list)
+    vhost = Column(JSON, default=list)
+    vcluster = Column(JSON, default=list)
+    vdatastore = Column(JSON, default=list)
+    vsnapshot = Column(JSON, default=list)
+    vhealth = Column(JSON, default=list)
+    vlicense = Column(JSON, default=list)
+    vdisk = Column(JSON, default=list)
+    summary = Column(JSON, default=dict)
+    customer = relationship("Customer", back_populates="rvtools_data")
 
 
 class OCPSurvey(Base):
