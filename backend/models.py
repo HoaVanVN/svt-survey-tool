@@ -200,6 +200,14 @@ class SecuritySurvey(Base):
     customer = relationship("Customer", back_populates="security_survey")
 
 
+class ReferenceData(Base):
+    __tablename__ = "reference_data"
+    id = Column(Integer, primary_key=True)
+    ref_type = Column(String(100), unique=True, nullable=False)
+    items = Column(JSON, default=list)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class OCPSurvey(Base):
     __tablename__ = "ocp_surveys"
     id = Column(Integer, primary_key=True)

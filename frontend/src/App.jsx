@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
 import CustomerList from './pages/CustomerList'
+import Settings from './pages/Settings'
 import CustomerDetail from './pages/CustomerDetail'
 import InventoryLayout from './pages/inventory/InventoryLayout'
 import ServerInventory from './pages/inventory/ServerInventory'
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/customers" replace />} />
           <Route path="customers" element={<CustomerList />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="customers/:id" element={<CustomerDetail />}>
             <Route index element={<Navigate to="inventory/servers" replace />} />
             {/* Legacy URL redirects */}

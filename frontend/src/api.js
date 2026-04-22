@@ -47,6 +47,13 @@ export const ocp = {
   sizing: (cid) => api.get(`/customers/${cid}/ocp/sizing`),
 }
 
+export const referenceApi = {
+  getAll: () => api.get('/reference/all'),
+  get: (refType) => api.get(`/reference/${refType}`),
+  save: (refType, items) => api.put(`/reference/${refType}`, { items }),
+  reset: (refType) => api.delete(`/reference/${refType}`),
+}
+
 export const exportApi = {
   excel: (cid, name) => {
     const a = document.createElement('a')

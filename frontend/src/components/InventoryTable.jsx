@@ -1,12 +1,9 @@
 import React from 'react'
 
-const STATUS_OPTIONS = ['Using', 'Standby', 'EOL', 'Decommissioned', 'Phased-out']
-
-export default function InventoryTable({ fields, items, onChange }) {
+export default function InventoryTable({ fields, items, onChange, refs = {} }) {
   const add = () => {
     const blank = {}
     fields.forEach(f => { blank[f.key] = f.default ?? '' })
-    blank.status = 'Using'
     onChange([...items, blank])
   }
 
@@ -18,10 +15,15 @@ export default function InventoryTable({ fields, items, onChange }) {
     onChange(next)
   }
 
+  const getOptions = (f) => {
+    if (f.refType && refs[f.refType]?.length) return refs[f.refType]
+    return f.options || []
+  }
+
   return (
     <div>
       <div className="flex justify-end mb-2">
-        <button className="btn-secondary text-xs" onClick={add}>+ Thêm thiết bị</button>
+        <button className="btn-secondary text-xs" onClick={add}>+ Thêm</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -46,9 +48,8 @@ export default function InventoryTable({ fields, items, onChange }) {
                         value={item[f.key] ?? f.default ?? ''}
                         onChange={e => set(i, f.key, e.target.value)}
                       >
-                        {(f.key === 'status' ? STATUS_OPTIONS : f.options || []).map(o => (
-                          <option key={o}>{o}</option>
-                        ))}
+                        <option value="">--</option>
+                        {getOptions(f).map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     ) : f.type === 'number' ? (
                       <input
@@ -57,6 +58,14 @@ export default function InventoryTable({ fields, items, onChange }) {
                         style={{ width: f.width || 70 }}
                         value={item[f.key] ?? f.default ?? ''}
                         onChange={e => set(i, f.key, e.target.value === '' ? '' : Number(e.target.value))}
+                      />
+                    ) : f.type === 'eos' ? (
+                      <input
+                        className="border-gray-200 rounded px-1 py-1 border text-xs"
+                        style={{ width: 90 }}
+                        placeholder="YYYY or MM/YYYY"
+                        value={item[f.key] ?? ''}
+                        onChange={e => set(i, f.key, e.target.value)}
                       />
                     ) : (
                       <input
@@ -76,7 +85,7 @@ export default function InventoryTable({ fields, items, onChange }) {
           </tbody>
         </table>
         {!items.length && (
-          <p className="text-center text-gray-400 py-8 text-sm">Chưa có thiết bị nào. Nhấn "+ Thêm thiết bị" để bắt đầu.</p>
+          <p className="text-center text-gray-400 py-8 text-sm">Chưa có dữ liệu. Nhấn "+ Thêm" để bắt đầu.</p>
         )}
       </div>
     </div>
