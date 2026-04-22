@@ -7,7 +7,7 @@ import InventoryTable from '../../components/InventoryTable'
 
 const FIELDS = [
   { key: 'name', label: 'Tên VM', type: 'text', width: 140 },
-  { key: 'guest_os', label: 'Guest OS', type: 'select', refType: 'os_list', width: 160 },
+  { key: 'guest_os', label: 'Guest OS', type: 'text', width: 200 },
   { key: 'vcpu', label: 'vCPU', type: 'number', width: 55 },
   { key: 'ram_gb', label: 'RAM (GB)', type: 'number', width: 70 },
   { key: 'disk_gb', label: 'Disk (GB)', type: 'number', width: 70 },

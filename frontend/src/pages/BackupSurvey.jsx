@@ -27,6 +27,12 @@ export default function BackupSurvey() {
   const setSrc = (i, f, v) => setData(p => { const s = [...p.backup_sources]; s[i] = { ...s[i], [f]: v }; return { ...p, backup_sources: s } })
   const addSrc = () => setData(p => ({ ...p, backup_sources: [...p.backup_sources, { ...DEF_SRC }] }))
   const removeSrc = (i) => setData(p => ({ ...p, backup_sources: p.backup_sources.filter((_, j) => j !== i) }))
+  const cloneSrc = (i) => setData(p => {
+    const s = [...p.backup_sources]
+    const copy = { ...s[i], name: (s[i].name || '') + ' (copy)' }
+    s.splice(i + 1, 0, copy)
+    return { ...p, backup_sources: s }
+  })
 
   const save = async () => {
     setSaving(true)
@@ -149,7 +155,10 @@ export default function BackupSurvey() {
                       {TIERS.map(o => <option key={o}>{o}</option>)}
                     </select>
                   </td>
-                  <td className="table-cell"><button onClick={() => removeSrc(i)} className="text-red-400 hover:text-red-600">✕</button></td>
+                  <td className="table-cell whitespace-nowrap">
+                    <button onClick={() => cloneSrc(i)} className="text-blue-400 hover:text-blue-600 mr-2" title="Clone nguồn">⧉</button>
+                    <button onClick={() => removeSrc(i)} className="text-red-400 hover:text-red-600" title="Xóa">✕</button>
+                  </td>
                 </tr>
               ))}
               {data.backup_sources.length > 0 && (
