@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { workload as api } from '../api'
 import PasteImportModal from '../components/PasteImportModal'
+import { useDragReorder } from '../hooks/useDragReorder'
 
 const DEF_SURVEY = {
   env_type: 'Production', virt_platform: 'VMware', current_system: 'On-premise',
@@ -64,6 +65,9 @@ export default function WorkloadSurvey() {
     catch { toast.error('Lỗi khi lưu') }
     finally { setSaving(false) }
   }
+
+  const moveItem = (next) => setData(p => ({ ...p, workload_items: next }))
+  const drag = useDragReorder(data.workload_items, moveItem)
 
   const totals = data.workload_items.reduce((acc, i) => ({
     vm: acc.vm + (i.vm_count || 0),
@@ -135,6 +139,7 @@ export default function WorkloadSurvey() {
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr>
+                <th className="table-hdr w-6" title="Kéo để sắp xếp lại"></th>
                 {['#', 'Tên Workload', 'Loại', 'Số VM', 'vCPU/VM', 'RAM (GB)/VM', 'Disk OS (GB)/VM', 'Disk Data (GB)/VM', 'IOPS/VM', 'Throughput MB/s', 'OS Type', 'Tier', 'Ghi chú', ''].map(h => (
                   <th key={h} className="table-hdr text-center">{h}</th>
                 ))}
@@ -142,7 +147,23 @@ export default function WorkloadSurvey() {
             </thead>
             <tbody>
               {data.workload_items.map((item, i) => (
-                <tr key={i} className="hover:bg-gray-50">
+                <tr
+                  key={i}
+                  draggable
+                  onDragStart={drag.onDragStart(i)}
+                  onDragOver={drag.onDragOver(i)}
+                  onDrop={drag.onDrop(i)}
+                  onDragEnd={drag.onDragEnd}
+                  onDragLeave={drag.onDragLeave}
+                  className={`transition-colors ${
+                    drag.dragOver === i
+                      ? 'border-t-2 border-blue-400 bg-blue-50'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <td className="table-cell w-6 text-center" {...drag.handleProps}>
+                    <span className="text-gray-300 hover:text-gray-500 text-sm select-none">⠿</span>
+                  </td>
                   <td className="table-cell text-center text-gray-400 w-8">{i + 1}</td>
                   {['name', 'workload_type', 'vm_count', 'vcpu_per_vm', 'ram_gb_per_vm', 'disk_os_gb_per_vm', 'disk_data_gb_per_vm', 'iops_per_vm', 'throughput_mbps_per_vm'].map(f => (
                     <td key={f} className="table-cell p-1">
@@ -180,11 +201,11 @@ export default function WorkloadSurvey() {
               ))}
               {data.workload_items.length > 0 && (
                 <tr className="bg-yellow-50 font-semibold">
-                  <td colSpan={3} className="table-cell text-center text-xs font-bold">TỔNG / TOTAL</td>
+                  <td colSpan={4} className="table-cell text-center text-xs font-bold">TỔNG / TOTAL</td>
                   {[totals.vm, totals.vcpu, totals.ram, totals.os, totals.data].map((v, i) => (
                     <td key={i} className="table-cell text-center text-xs font-bold">{Math.round(v).toLocaleString()}</td>
                   ))}
-                  <td colSpan={5} />
+                  <td colSpan={6} />
                 </tr>
               )}
             </tbody>

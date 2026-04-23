@@ -142,14 +142,82 @@ function mapVInfoToVMs(vinfo, hostVersionMap) {
   })
 }
 
+// ── Merge helpers ─────────────────────────────────────────────────────────────
+
+/** Deduplicate array by a string key (last-in wins). */
+function dedupBy(arr1, arr2, key) {
+  const map = {}
+  ;[...arr1, ...arr2].forEach(r => { if (r[key]) map[r[key]] = r })
+  return Object.values(map)
+}
+
+/** Parse one RVTools Excel file; returns { vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth, vlicense, vdisk } */
+async function parseRVToolsFile(file) {
+  const XLSX = await import('xlsx')
+  const buf  = await file.arrayBuffer()
+  const wb   = XLSX.read(buf, { type: 'array' })
+  const getSheet = (name) => {
+    const sn = wb.SheetNames.find(n => n.toLowerCase() === name.toLowerCase())
+    return sn ? XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' }) : []
+  }
+  return {
+    vinfo:      getSheet('vInfo'),
+    vhost:      getSheet('vHost'),
+    vcluster:   getSheet('vCluster'),
+    vdatastore: getSheet('vDatastore'),
+    vsnapshot:  getSheet('vSnapshot'),
+    vhealth:    getSheet('vHealth'),
+    vlicense:   getSheet('vLicense'),
+    vdisk:      getSheet('vDisk'),
+  }
+}
+
+/** Merge new RVTools data into existing accumulated data. */
+function mergeRVTools(existing, incoming) {
+  return {
+    vinfo:      [...(existing.vinfo      || []), ...incoming.vinfo],
+    vhost:      dedupBy(existing.vhost      || [], incoming.vhost,      'Host'),
+    vcluster:   dedupBy(existing.vcluster   || [], incoming.vcluster,   'Cluster'),
+    vdatastore: dedupBy(existing.vdatastore || [], incoming.vdatastore, 'Name'),
+    vsnapshot:  [...(existing.vsnapshot  || []), ...incoming.vsnapshot],
+    vhealth:    [...(existing.vhealth    || []), ...incoming.vhealth],
+    vlicense:   [...(existing.vlicense   || []), ...incoming.vlicense],
+    vdisk:      [...(existing.vdisk      || []), ...incoming.vdisk],
+  }
+}
+
+function buildSummary(merged) {
+  const { vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth } = merged
+  const poweredOn    = vinfo.filter(r => (r['Powerstate'] || '').toLowerCase() === 'poweredon').length
+  const totalVcpu    = vinfo.reduce((s, r) => s + Number(r['CPUs'] || 0), 0)
+  const totalRamMiB  = vinfo.reduce((s, r) => s + Number(r['Memory'] || 0), 0)
+  const totalDiskMiB = vinfo.reduce((s, r) => s + Number(r['Total disk capacity MiB'] || 0), 0)
+  return {
+    total_vms:            vinfo.length,
+    powered_on:           poweredOn,
+    powered_off:          vinfo.length - poweredOn,
+    total_vcpu:           totalVcpu,
+    total_ram_gib:        Math.round(totalRamMiB / 1024),
+    total_disk_tb:        Math.round(totalDiskMiB / 1024 / 1024 * 10) / 10,
+    host_count:           vhost.length,
+    cluster_count:        vcluster.length,
+    datastore_count:      vdatastore.length,
+    snapshot_count:       vsnapshot.length,
+    health_warning_count: vhealth.length,
+  }
+}
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export default function VMInventory() {
   const { id } = useParams()
   const refs = useRefs()
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [rvtoolsInfo, setRvtoolsInfo] = useState(null)
-  const fileRef = useRef(null)
+  const [rvtoolsInfo, setRvtoolsInfo] = useState(null)  // full raw rvtools record
+  const replaceRef = useRef(null)
+  const mergeRef   = useRef(null)
 
   useEffect(() => {
     inventoryApi.getCategory(id, 'virtual_machines')
@@ -165,7 +233,6 @@ export default function VMInventory() {
   }, [id, items])
 
   const { isDirty, lastSaved, markClean } = useAutoSave(items, doSave)
-
   const fmtTime = (d) => d ? d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
 
   const save = async () => {
@@ -181,80 +248,174 @@ export default function VMInventory() {
     }
   }
 
-  const handleImport = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // ── Core import logic ──────────────────────────────────────────────────────
+
+  const doImport = async (files, mode /* 'replace' | 'merge' */) => {
+    if (!files || files.length === 0) return
     setImporting(true)
     try {
-      const XLSX = await import('xlsx')
-      const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array' })
+      // Parse all selected files
+      const parsed = []
+      for (const file of files) {
+        const data = await parseRVToolsFile(file)
+        if (data.vinfo.length === 0) {
+          toast.error(`"${file.name}": không tìm thấy sheet vInfo`)
+          continue
+        }
+        parsed.push({ file, data })
+      }
+      if (parsed.length === 0) return
 
-      const getSheet = (name) => {
-        const sn = wb.SheetNames.find(n => n.toLowerCase() === name.toLowerCase())
-        if (!sn) return []
-        return XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' })
+      // Start from empty or existing depending on mode
+      const base = mode === 'merge' && rvtoolsInfo
+        ? {
+            vinfo:      rvtoolsInfo.vinfo      || [],
+            vhost:      rvtoolsInfo.vhost      || [],
+            vcluster:   rvtoolsInfo.vcluster   || [],
+            vdatastore: rvtoolsInfo.vdatastore || [],
+            vsnapshot:  rvtoolsInfo.vsnapshot  || [],
+            vhealth:    rvtoolsInfo.vhealth    || [],
+            vlicense:   rvtoolsInfo.vlicense   || [],
+            vdisk:      rvtoolsInfo.vdisk      || [],
+          }
+        : { vinfo: [], vhost: [], vcluster: [], vdatastore: [], vsnapshot: [], vhealth: [], vlicense: [], vdisk: [] }
+
+      // Tag every raw row with its source filename so per-file removal works
+      const tagRows = (rows, fname) => rows.map(r => ({ ...r, _rvtools_file: fname }))
+
+      let merged = base
+      for (const { file, data } of parsed) {
+        const tagged = {
+          vinfo:      tagRows(data.vinfo,      file.name),
+          vhost:      tagRows(data.vhost,      file.name),
+          vcluster:   tagRows(data.vcluster,   file.name),
+          vdatastore: tagRows(data.vdatastore, file.name),
+          vsnapshot:  tagRows(data.vsnapshot,  file.name),
+          vhealth:    tagRows(data.vhealth,    file.name),
+          vlicense:   tagRows(data.vlicense,   file.name),
+          vdisk:      tagRows(data.vdisk,      file.name),
+        }
+        merged = mergeRVTools(merged, tagged)
       }
 
-      const vinfo     = getSheet('vInfo')
-      const vhost     = getSheet('vHost')
-      const vcluster  = getSheet('vCluster')
-      const vdatastore = getSheet('vDatastore')
-      const vsnapshot = getSheet('vSnapshot')
-      const vhealth   = getSheet('vHealth')
-      const vlicense  = getSheet('vLicense')
-      const vdisk     = getSheet('vDisk')
-
-      if (vinfo.length === 0) {
-        toast.error('Không tìm thấy sheet vInfo trong file Excel')
-        return
-      }
-
+      // Build host→ESX version map from merged vhost
       const hostVersionMap = {}
-      vhost.forEach(r => { if (r['Host']) hostVersionMap[r['Host']] = r['ESX Version'] || '' })
+      merged.vhost.forEach(r => { if (r['Host']) hostVersionMap[r['Host']] = r['ESX Version'] || '' })
 
-      const poweredOn   = vinfo.filter(r => (r['Powerstate'] || '').toLowerCase() === 'poweredon').length
-      const totalVcpu   = vinfo.reduce((s, r) => s + Number(r['CPUs'] || 0), 0)
-      const totalRamMiB = vinfo.reduce((s, r) => s + Number(r['Memory'] || 0), 0)
-      const totalDiskMiB = vinfo.reduce((s, r) => s + Number(r['Total disk capacity MiB'] || 0), 0)
+      // Build updated source_files list
+      const existingFiles = mode === 'merge' ? (rvtoolsInfo?.source_files || []) : []
+      const nowISO = new Date().toISOString()
+      const newFiles = parsed.map(({ file, data }) => ({
+        filename:    file.name,
+        vm_count:    data.vinfo.length,
+        imported_at: nowISO,
+      }))
+      // Deduplicate by filename: new entry replaces old
+      const mergedFiles = [
+        ...existingFiles.filter(f => !newFiles.some(n => n.filename === f.filename)),
+        ...newFiles,
+      ]
 
-      const summary = {
-        total_vms:           vinfo.length,
-        powered_on:          poweredOn,
-        powered_off:         vinfo.length - poweredOn,
-        total_vcpu:          totalVcpu,
-        total_ram_gib:       Math.round(totalRamMiB / 1024),
-        total_disk_tb:       Math.round(totalDiskMiB / 1024 / 1024 * 10) / 10,
-        host_count:          vhost.length,
-        cluster_count:       vcluster.length,
-        datastore_count:     vdatastore.length,
-        snapshot_count:      vsnapshot.length,
-        health_warning_count: vhealth.length,
-      }
+      const summary = buildSummary(merged)
 
-      await rvtoolsApi.save(id, {
-        source_filename: file.name,
-        vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth, vlicense, vdisk,
+      // Save to backend
+      const saveRes = await rvtoolsApi.save(id, {
+        source_filename: mergedFiles.map(f => f.filename).join(', '),
+        source_files:    mergedFiles,
+        ...merged,
         summary,
       })
 
-      const vms = mapVInfoToVMs(vinfo, hostVersionMap)
+      // Build VM list and persist
+      const vms = mapVInfoToVMs(merged.vinfo, hostVersionMap)
       setItems(vms)
       await inventoryApi.saveCategory(id, 'virtual_machines', vms)
-      setRvtoolsInfo({ exists: true, source_filename: file.name })
 
-      toast.success(`✅ Đã import ${vms.length} VMs từ ${file.name}`)
+      // Update local rvtoolsInfo
+      setRvtoolsInfo({
+        exists: true,
+        source_filename: saveRes.data.source_filename,
+        source_files:    mergedFiles,
+        imported_at:     saveRes.data.imported_at,
+        ...merged,
+        summary,
+      })
+
+      const totalVMs  = vms.length
+      const fileNames = parsed.map(p => p.file.name).join(', ')
+      toast.success(
+        mode === 'merge'
+          ? `✅ Đã gộp ${parsed.length} file → ${totalVMs} VMs tổng cộng`
+          : `✅ Đã import ${totalVMs} VMs từ ${fileNames}`
+      )
     } catch (err) {
       console.error(err)
       toast.error('Lỗi khi import: ' + (err.message || 'Unknown error'))
     } finally {
       setImporting(false)
-      if (fileRef.current) fileRef.current.value = ''
+      if (replaceRef.current) replaceRef.current.value = ''
+      if (mergeRef.current)   mergeRef.current.value   = ''
     }
   }
 
+  // Remove one file entry and rebuild VMs from remaining files
+  const removeSourceFile = async (filename) => {
+    if (!rvtoolsInfo) return
+    const remaining = (rvtoolsInfo.source_files || []).filter(f => f.filename !== filename)
+    if (remaining.length === 0) {
+      // Clear everything
+      try {
+        await rvtoolsApi.save(id, {
+          source_filename: '',
+          source_files: [],
+          vinfo: [], vhost: [], vcluster: [], vdatastore: [],
+          vsnapshot: [], vhealth: [], vlicense: [], vdisk: [],
+          summary: {},
+        })
+        setRvtoolsInfo(null)
+        setItems([])
+        await inventoryApi.saveCategory(id, 'virtual_machines', [])
+        toast.success('Đã xóa tất cả dữ liệu RVTools')
+      } catch { toast.error('Lỗi khi xóa') }
+      return
+    }
+    // Filter vinfo by _rvtools_file tag (set during import)
+    const newVinfo = (rvtoolsInfo.vinfo || []).filter(r => r._rvtools_file !== filename)
+    const newVhost = (rvtoolsInfo.vhost || []).filter(r => r._rvtools_file !== filename)
+    // rebuild
+    const hostVersionMap = {}
+    newVhost.forEach(r => { if (r['Host']) hostVersionMap[r['Host']] = r['ESX Version'] || '' })
+    const vms = mapVInfoToVMs(newVinfo, hostVersionMap)
+    const merged = {
+      vinfo:      newVinfo,
+      vhost:      newVhost,
+      vcluster:   (rvtoolsInfo.vcluster   || []).filter(r => r._rvtools_file !== filename),
+      vdatastore: (rvtoolsInfo.vdatastore || []).filter(r => r._rvtools_file !== filename),
+      vsnapshot:  (rvtoolsInfo.vsnapshot  || []).filter(r => r._rvtools_file !== filename),
+      vhealth:    (rvtoolsInfo.vhealth    || []).filter(r => r._rvtools_file !== filename),
+      vlicense:   (rvtoolsInfo.vlicense   || []).filter(r => r._rvtools_file !== filename),
+      vdisk:      (rvtoolsInfo.vdisk      || []).filter(r => r._rvtools_file !== filename),
+    }
+    try {
+      await rvtoolsApi.save(id, {
+        source_filename: remaining.map(f => f.filename).join(', '),
+        source_files:    remaining,
+        ...merged,
+        summary: buildSummary(merged),
+      })
+      setItems(vms)
+      await inventoryApi.saveCategory(id, 'virtual_machines', vms)
+      setRvtoolsInfo(prev => ({ ...prev, ...merged, source_files: remaining, source_filename: remaining.map(f => f.filename).join(', ') }))
+      toast.success(`Đã xóa "${filename}"`)
+    } catch { toast.error('Lỗi khi xóa file') }
+  }
+
+  const sourceFiles = rvtoolsInfo?.source_files || []
+  const hasRVTools  = sourceFiles.length > 0
+
   return (
     <div className="card space-y-3">
+      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="font-semibold text-gray-800 flex items-center gap-3">
@@ -264,33 +425,78 @@ export default function VMInventory() {
             {isDirty && <span className="text-xs text-amber-600 font-medium">● chưa lưu</span>}
             {!isDirty && lastSaved && <span className="text-xs text-green-600">✓ tự động lưu {fmtTime(lastSaved)}</span>}
           </h3>
-          {rvtoolsInfo?.source_filename && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              📊 RVTools: <span className="font-medium">{rvtoolsInfo.source_filename}</span>
-              {rvtoolsInfo.imported_at && (
-                <span className="ml-1">• {new Date(rvtoolsInfo.imported_at).toLocaleString()}</span>
-              )}
+        </div>
+
+        {/* Import buttons */}
+        <div className="flex gap-2 items-center">
+          {/* Replace-all picker */}
+          <input type="file" accept=".xlsx,.xls" multiple ref={replaceRef} className="hidden"
+            onChange={e => doImport(Array.from(e.target.files || []), 'replace')} />
+          {/* Merge picker */}
+          <input type="file" accept=".xlsx,.xls" multiple ref={mergeRef} className="hidden"
+            onChange={e => doImport(Array.from(e.target.files || []), 'merge')} />
+
+          {hasRVTools ? (
+            <>
+              <button
+                className="btn-secondary text-xs"
+                onClick={() => mergeRef.current?.click()}
+                disabled={importing}
+                title="Thêm file RVTools và gộp với dữ liệu hiện có"
+              >
+                {importing ? '⏳...' : '➕ Gộp file'}
+              </button>
+              <button
+                className="btn-secondary text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                onClick={() => replaceRef.current?.click()}
+                disabled={importing}
+                title="Xóa toàn bộ và import lại từ đầu"
+              >
+                🔄 Thay thế
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn-secondary text-xs"
+              onClick={() => replaceRef.current?.click()}
+              disabled={importing}
+              title="Import từ file RVTools Excel (.xlsx)"
+            >
+              {importing ? '⏳ Đang import...' : '📥 Import RVTools'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Imported files list ── */}
+      {sourceFiles.length > 0 && (
+        <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 space-y-1">
+          <p className="text-xs font-semibold text-blue-700 mb-1">
+            📊 RVTools đã import ({sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''} · {items.length} VMs tổng)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {sourceFiles.map((sf, idx) => (
+              <div key={idx}
+                className="flex items-center gap-1.5 bg-white border border-blue-200 rounded-full px-2.5 py-0.5 text-xs shadow-sm"
+              >
+                <span className="text-blue-400">📄</span>
+                <span className="font-medium text-gray-700">{sf.filename}</span>
+                <span className="text-gray-400">({sf.vm_count} VMs)</span>
+                <button
+                  onClick={() => removeSourceFile(sf.filename)}
+                  className="text-gray-300 hover:text-red-500 ml-0.5 leading-none font-bold transition-colors"
+                  title={`Xóa "${sf.filename}"`}
+                >×</button>
+              </div>
+            ))}
+          </div>
+          {rvtoolsInfo?.imported_at && (
+            <p className="text-[10px] text-blue-400 mt-0.5">
+              Lần import gần nhất: {new Date(rvtoolsInfo.imported_at).toLocaleString('vi-VN')}
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            ref={fileRef}
-            className="hidden"
-            onChange={handleImport}
-          />
-          <button
-            className="btn-secondary text-xs"
-            onClick={() => fileRef.current?.click()}
-            disabled={importing}
-            title="Import từ file RVTools Excel (.xlsx)"
-          >
-            {importing ? '⏳ Đang import...' : '📥 Import RVTools'}
-          </button>
-        </div>
-      </div>
+      )}
 
       <InventoryTable fields={FIELDS} items={items} onChange={setItems} refs={refs} />
 

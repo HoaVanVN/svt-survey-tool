@@ -219,6 +219,7 @@ class RVToolsData(Base):
     customer_id = Column(Integer, ForeignKey("customers.id"), unique=True)
     source_filename = Column(String(255))
     imported_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    source_files = Column(JSON, default=list)   # list of {filename, vm_count, imported_at}
     vinfo = Column(JSON, default=list)
     vhost = Column(JSON, default=list)
     vcluster = Column(JSON, default=list)

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import PasteImportModal from './PasteImportModal'
+import { useDragReorder } from '../hooks/useDragReorder'
 
 // ── EOS badge ─────────────────────────────────────────────────────────────────
 function parseEOS(val) {
@@ -132,6 +133,8 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
     }
   }
 
+  const drag = useDragReorder(items, onChange)
+
   return (
     <div>
       <div className="flex justify-end mb-2 gap-2">
@@ -146,6 +149,7 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
         <table className="w-full text-xs">
           <thead>
             <tr>
+              <th className="table-hdr w-6" title="Kéo để sắp xếp lại"></th>
               <th className="table-hdr text-center w-8">#</th>
               {fields.map(f => (
                 <th key={f.key} className="table-hdr" style={{ minWidth: f.width || 90 }}>{f.label}</th>
@@ -155,7 +159,23 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
           </thead>
           <tbody>
             {items.map((item, i) => (
-              <tr key={i} className="hover:bg-gray-50">
+              <tr
+                key={i}
+                draggable
+                onDragStart={drag.onDragStart(i)}
+                onDragOver={drag.onDragOver(i)}
+                onDrop={drag.onDrop(i)}
+                onDragEnd={drag.onDragEnd}
+                onDragLeave={drag.onDragLeave}
+                className={`transition-colors ${
+                  drag.dragOver === i
+                    ? 'border-t-2 border-blue-400 bg-blue-50'
+                    : 'hover:bg-gray-50'
+                }`}
+              >
+                <td className="table-cell w-6 text-center" {...drag.handleProps}>
+                  <span className="text-gray-300 hover:text-gray-500 text-sm select-none">⠿</span>
+                </td>
                 <td className="table-cell text-center text-gray-400">{i + 1}</td>
                 {fields.map(f => (
                   <td key={f.key} className="table-cell p-1">

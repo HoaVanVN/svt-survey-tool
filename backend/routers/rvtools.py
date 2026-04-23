@@ -11,6 +11,7 @@ router = APIRouter(prefix="/customers/{customer_id}/rvtools", tags=["rvtools"])
 
 class RVToolsPayload(BaseModel):
     source_filename: Optional[str] = None
+    source_files: Optional[List[Any]] = None   # list of {filename, vm_count, imported_at}
     vinfo: List[Any] = []
     vhost: List[Any] = []
     vcluster: List[Any] = []
@@ -38,6 +39,7 @@ def get_rvtools(customer_id: int, db: Session = Depends(get_db)):
     return {
         "exists": True,
         "source_filename": r.source_filename,
+        "source_files": r.source_files or [],
         "imported_at": r.imported_at.isoformat() if r.imported_at else None,
         "vinfo": r.vinfo or [],
         "vhost": r.vhost or [],
@@ -59,6 +61,7 @@ def save_rvtools(customer_id: int, payload: RVToolsPayload, db: Session = Depend
         r = models.RVToolsData(customer_id=customer_id)
         db.add(r)
     r.source_filename = payload.source_filename
+    r.source_files = payload.source_files if payload.source_files is not None else (r.source_files or [])
     r.vinfo = payload.vinfo
     r.vhost = payload.vhost
     r.vcluster = payload.vcluster
@@ -70,9 +73,13 @@ def save_rvtools(customer_id: int, payload: RVToolsPayload, db: Session = Depend
     r.summary = payload.summary
     db.commit()
     db.refresh(r)
-    return {"ok": True, "source_filename": r.source_filename,
-            "imported_at": r.imported_at.isoformat() if r.imported_at else None,
-            "vm_count": len(r.vinfo or [])}
+    return {
+        "ok": True,
+        "source_filename": r.source_filename,
+        "source_files": r.source_files or [],
+        "imported_at": r.imported_at.isoformat() if r.imported_at else None,
+        "vm_count": len(r.vinfo or []),
+    }
 
 
 @router.delete("")

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { backup as api } from '../api'
 import PasteImportModal from '../components/PasteImportModal'
+import { useDragReorder } from '../hooks/useDragReorder'
 
 const DEF = {
   backup_software: '', backup_target: '', air_gap_immutable: false, offsite_cloud: false, cloud_target: '', tape_required: false,
@@ -44,6 +45,9 @@ export default function BackupSurvey() {
     s.splice(i + 1, 0, copy)
     return { ...p, backup_sources: s }
   })
+
+  const moveSrc = (next) => setData(p => ({ ...p, backup_sources: next }))
+  const dragSrc = useDragReorder(data.backup_sources, moveSrc)
 
   const save = async () => {
     setSaving(true)
@@ -150,11 +154,26 @@ export default function BackupSurvey() {
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr>{['#', 'Tên nguồn dữ liệu', 'Loại', 'Dung lượng (TB)', 'Tăng trưởng (%/năm)', 'Tần suất', 'Retention (ngày)', 'Tier', ''].map(h => <th key={h} className="table-hdr text-center">{h}</th>)}</tr>
+              <tr>
+                <th className="table-hdr w-6"></th>
+                {['#', 'Tên nguồn dữ liệu', 'Loại', 'Dung lượng (TB)', 'Tăng trưởng (%/năm)', 'Tần suất', 'Retention (ngày)', 'Tier', ''].map(h => <th key={h} className="table-hdr text-center">{h}</th>)}
+              </tr>
             </thead>
             <tbody>
               {data.backup_sources.map((src, i) => (
-                <tr key={i} className="hover:bg-gray-50">
+                <tr
+                  key={i}
+                  draggable
+                  onDragStart={dragSrc.onDragStart(i)}
+                  onDragOver={dragSrc.onDragOver(i)}
+                  onDrop={dragSrc.onDrop(i)}
+                  onDragEnd={dragSrc.onDragEnd}
+                  onDragLeave={dragSrc.onDragLeave}
+                  className={`transition-colors ${dragSrc.dragOver === i ? 'border-t-2 border-blue-400 bg-blue-50' : 'hover:bg-gray-50'}`}
+                >
+                  <td className="table-cell w-6 text-center" {...dragSrc.handleProps}>
+                    <span className="text-gray-300 hover:text-gray-500 text-sm select-none">⠿</span>
+                  </td>
                   <td className="table-cell text-center text-gray-400 w-8">{i + 1}</td>
                   <td className="table-cell p-1"><input className="w-full text-xs border-gray-200 rounded px-1 py-1 border min-w-[130px]" value={src.name || ''} onChange={e => setSrc(i, 'name', e.target.value)} /></td>
                   <td className="table-cell p-1">
@@ -184,9 +203,9 @@ export default function BackupSurvey() {
               ))}
               {data.backup_sources.length > 0 && (
                 <tr className="bg-yellow-50 font-semibold">
-                  <td colSpan={3} className="table-cell text-center text-xs font-bold">TỔNG (TB)</td>
+                  <td colSpan={4} className="table-cell text-center text-xs font-bold">TỔNG (TB)</td>
                   <td className="table-cell text-center text-xs font-bold">{totalSrc.toFixed(2)}</td>
-                  <td colSpan={5} />
+                  <td colSpan={6} />
                 </tr>
               )}
             </tbody>
