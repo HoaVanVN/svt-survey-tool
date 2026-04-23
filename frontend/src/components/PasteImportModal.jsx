@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 
 // ── TSV parser ────────────────────────────────────────────────────────────────
 function parseTSV(text) {
@@ -9,7 +9,6 @@ function parseTSV(text) {
     .filter(row => row.some(c => c !== ''))
 }
 
-// Decide whether the first row looks like a header row
 function detectHeaders(firstRow, fields) {
   const norm = firstRow.map(h => h.toLowerCase())
   const fieldTokens = fields.flatMap(f => [
@@ -17,12 +16,13 @@ function detectHeaders(firstRow, fields) {
     f.key.toLowerCase(),
     ...(f.pasteAlts || []).map(a => a.toLowerCase()),
   ])
-  const matches = norm.filter(h => fieldTokens.some(t => t === h || t.includes(h) || h.includes(t) && h.length > 2))
+  const matches = norm.filter(h =>
+    fieldTokens.some(t => t === h || t.includes(h) || (h.includes(t) && h.length > 2))
+  )
   return matches.length >= Math.min(2, Math.ceil(firstRow.length * 0.35))
 }
 
-// Build colIndex → fieldKey map from a header row
-function buildColMap(headerRow, fields) {
+function buildAutoColMap(headerRow, fields) {
   const map = {}
   headerRow.forEach((raw, ci) => {
     const h = raw.toLowerCase()
@@ -41,15 +41,14 @@ function buildColMap(headerRow, fields) {
   return map
 }
 
-// Build positional colMap (col 0 → field 0, etc.)
 function buildPositionalMap(fields) {
   return Object.fromEntries(fields.map((f, i) => [i, f.key]))
 }
 
-// Convert a TSV row to a data item
 function rowToItem(cols, colMap, fields, defaultItem) {
   const item = { ...defaultItem }
   Object.entries(colMap).forEach(([ci, key]) => {
+    if (!key) return
     const f = fields.find(f => f.key === key)
     const val = (cols[Number(ci)] || '').trim()
     if (!val) return
@@ -64,6 +63,18 @@ function rowToItem(cols, colMap, fields, defaultItem) {
   return item
 }
 
+// Build initial editable colMap (all columns, auto-mapped or '')
+function initColMap(autoMap, colCount) {
+  const m = {}
+  for (let ci = 0; ci < colCount; ci++) m[ci] = autoMap[ci] || ''
+  return m
+}
+
+// Sorted entries of colMap by column index
+function sortedEntries(colMap) {
+  return Object.entries(colMap).sort((a, b) => Number(a[0]) - Number(b[0]))
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function PasteImportModal({
   fields,
@@ -72,34 +83,74 @@ export default function PasteImportModal({
   buttonLabel = '📋 Paste từ Excel',
   buttonClassName = 'btn-secondary text-xs',
 }) {
-  const [open, setOpen] = useState(false)
-  const [raw, setRaw] = useState('')
-  const [preview, setPreview] = useState(null)
-  const [mode, setMode] = useState('append') // 'append' | 'replace'
+  const [open, setOpen]         = useState(false)
+  const [raw, setRaw]           = useState('')
+  const [parsed, setParsed]     = useState(null)   // { isHeader, headerRow, dataRows, colCount }
+  const [colMap, setColMap]     = useState({})      // { colIndex(str): fieldKey | '' }
+  const [mode, setMode]         = useState('append')
+  const [showMapper, setShowMapper] = useState(false)
 
+  // ── Parse pasted text ──────────────────────────────────────────────────────
   const parse = useCallback(() => {
     const rows = parseTSV(raw)
     if (!rows.length) return
 
-    const isHeader = detectHeaders(rows[0], fields)
-    const colMap = isHeader ? buildColMap(rows[0], fields) : buildPositionalMap(fields)
-    const dataRows = isHeader ? rows.slice(1) : rows
-    const items = dataRows
+    const isHeader  = detectHeaders(rows[0], fields)
+    const autoMap   = isHeader ? buildAutoColMap(rows[0], fields) : buildPositionalMap(fields)
+    const dataRows  = isHeader ? rows.slice(1) : rows
+    const colCount  = rows[0].length
+
+    setParsed({ isHeader, headerRow: isHeader ? rows[0] : [], dataRows, colCount })
+    setColMap(initColMap(autoMap, colCount))
+    setShowMapper(false)
+  }, [raw, fields])
+
+  // ── Derived preview items ──────────────────────────────────────────────────
+  const items = useMemo(() => {
+    if (!parsed) return []
+    const effectiveMap = Object.fromEntries(
+      Object.entries(colMap).filter(([, v]) => v !== '')
+    )
+    return parsed.dataRows
       .filter(r => r.some(c => c))
-      .map(r => rowToItem(r, colMap, fields, defaultItem))
+      .map(r => rowToItem(r, effectiveMap, fields, defaultItem))
+  }, [parsed, colMap, fields, defaultItem])
 
-    setPreview({ items, colMap, isHeader, headerRow: isHeader ? rows[0] : [] })
-  }, [raw, fields, defaultItem])
-
-  const confirm = () => {
-    if (preview?.items?.length) {
-      onImport(preview.items, mode)
-      close()
-    }
+  // ── Column mapping update ──────────────────────────────────────────────────
+  const updateCol = (ci, newKey) => {
+    setColMap(prev => {
+      const next = { ...prev }
+      // If the chosen field is already assigned to another column, clear that column
+      if (newKey) {
+        Object.entries(next).forEach(([k, v]) => {
+          if (v === newKey && Number(k) !== Number(ci)) next[k] = ''
+        })
+      }
+      next[ci] = newKey
+      return next
+    })
   }
 
-  const close = () => { setOpen(false); setRaw(''); setPreview(null) }
+  const resetToAuto = () => {
+    if (!parsed) return
+    const autoMap = parsed.isHeader
+      ? buildAutoColMap(parsed.headerRow, fields)
+      : buildPositionalMap(fields)
+    setColMap(initColMap(autoMap, parsed.colCount))
+  }
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const mappedCount = Object.values(colMap).filter(v => v !== '').length
+  const mappedKeys  = new Set(Object.values(colMap).filter(v => v !== ''))
+
+  const confirm = () => {
+    if (items.length) { onImport(items, mode); close() }
+  }
+  const close = () => {
+    setOpen(false); setRaw(''); setParsed(null); setColMap({}); setShowMapper(false)
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
       <button className={buttonClassName} onClick={() => setOpen(true)}>{buttonLabel}</button>
@@ -113,27 +164,28 @@ export default function PasteImportModal({
             className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
+            {/* ── Header ── */}
             <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-gray-800">📋 Import từ Excel</h3>
               <button onClick={close} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
 
-            {/* Body */}
+            {/* ── Body ── */}
             <div className="p-4 space-y-3 overflow-auto flex-1">
               <p className="text-xs text-gray-500">
-                Trong Excel, chọn các ô muốn import (kể cả dòng tiêu đề nếu có) → Copy (Ctrl+C) → Dán vào đây.
-                Hệ thống sẽ tự động nhận diện tiêu đề và khớp các cột.
+                Trong Excel, chọn ô muốn import (kể cả dòng tiêu đề nếu có) → Copy (Ctrl+C) → Dán vào đây.
+                Hệ thống tự động khớp cột; bạn có thể điều chỉnh thủ công bằng nút 🔧.
               </p>
 
               <textarea
-                className="w-full h-32 text-xs font-mono border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y"
+                className="w-full h-28 text-xs font-mono border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y"
                 placeholder={"Dán dữ liệu Excel vào đây (Ctrl+V)…\n\nVí dụ có tiêu đề:\nTên\tvCPU\tRAM\nApp Server\t8\t32\n\nVí dụ không tiêu đề (khớp theo thứ tự cột):\nApp Server\t8\t32"}
                 value={raw}
-                onChange={e => { setRaw(e.target.value); setPreview(null) }}
+                onChange={e => { setRaw(e.target.value); setParsed(null); setColMap({}) }}
                 onPaste={() => setTimeout(parse, 30)}
               />
 
+              {/* ── Toolbar ── */}
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   className="btn-primary text-xs"
@@ -142,96 +194,190 @@ export default function PasteImportModal({
                 >
                   🔍 Phân tích
                 </button>
-                {preview && (
-                  <div className="flex items-center gap-3 ml-auto">
-                    <label className="text-xs text-gray-600 flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="paste-mode" value="append" checked={mode === 'append'} onChange={() => setMode('append')} />
-                      Thêm vào cuối
-                    </label>
-                    <label className="text-xs text-gray-600 flex items-center gap-1 cursor-pointer">
-                      <input type="radio" name="paste-mode" value="replace" checked={mode === 'replace'} onChange={() => setMode('replace')} />
-                      Thay thế tất cả
-                    </label>
-                  </div>
+
+                {parsed && (
+                  <>
+                    <span className="text-xs font-semibold text-gray-700">
+                      {items.length} dòng &nbsp;·&nbsp; {mappedCount}/{parsed.colCount} cột được map
+                    </span>
+                    {parsed.isHeader
+                      ? <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">✓ Nhận diện tiêu đề</span>
+                      : <span className="text-xs text-yellow-700 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">⚠ Khớp theo vị trí</span>
+                    }
+
+                    <button
+                      className={`text-xs px-2 py-1 rounded border transition-colors ml-auto ${
+                        showMapper
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                      }`}
+                      onClick={() => setShowMapper(v => !v)}
+                    >
+                      🔧 Tùy chỉnh cột mapping
+                    </button>
+
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-gray-600 flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="paste-mode" value="append" checked={mode === 'append'} onChange={() => setMode('append')} />
+                        Thêm vào cuối
+                      </label>
+                      <label className="text-xs text-gray-600 flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="paste-mode" value="replace" checked={mode === 'replace'} onChange={() => setMode('replace')} />
+                        Thay thế tất cả
+                      </label>
+                    </div>
+                  </>
                 )}
               </div>
 
-              {preview && (
-                <div className="space-y-2">
-                  {/* Status badge */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-gray-700">
-                      Kết quả: {preview.items.length} dòng dữ liệu
+              {/* ── Column mapping editor ── */}
+              {parsed && showMapper && (
+                <div className="border border-blue-200 rounded-lg bg-blue-50/30 overflow-hidden">
+                  {/* panel header */}
+                  <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-200">
+                    <span className="text-xs font-semibold text-blue-800">
+                      🔧 Mapping cột — {parsed.colCount} cột Excel → chọn trường đích
                     </span>
-                    {preview.isHeader
-                      ? <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">✓ Nhận diện dòng tiêu đề</span>
-                      : <span className="text-xs text-yellow-700 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">⚠ Khớp theo vị trí cột</span>
-                    }
+                    <button
+                      className="text-[10px] text-blue-600 hover:underline"
+                      onClick={resetToAuto}
+                    >
+                      ↩ Reset về tự động
+                    </button>
                   </div>
 
-                  {/* Column mapping badges */}
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(preview.colMap).map(([ci, key]) => {
-                      const fl = fields.find(f => f.key === key)
-                      const srcLabel = preview.isHeader ? (preview.headerRow[Number(ci)] || `Cột ${Number(ci) + 1}`) : `Cột ${Number(ci) + 1}`
+                  {/* mapping grid */}
+                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {sortedEntries(colMap).map(([ci, currentKey]) => {
+                      const srcLabel = parsed.isHeader
+                        ? (parsed.headerRow[Number(ci)] || `Cột ${Number(ci) + 1}`)
+                        : `Cột ${Number(ci) + 1}`
                       return (
-                        <span key={ci} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">
-                          {srcLabel} → {fl?.label || key}
-                        </span>
+                        <div
+                          key={ci}
+                          className={`flex items-center gap-1.5 bg-white rounded border px-2 py-1 ${
+                            currentKey ? 'border-blue-200' : 'border-gray-200'
+                          }`}
+                        >
+                          {/* source column label */}
+                          <span
+                            className="text-[10px] text-gray-500 truncate shrink-0"
+                            style={{ maxWidth: 96 }}
+                            title={srcLabel}
+                          >
+                            {srcLabel}
+                          </span>
+
+                          <span className="text-gray-300 text-xs shrink-0">→</span>
+
+                          {/* target field selector */}
+                          <select
+                            className={`text-[10px] rounded px-1 py-0.5 border flex-1 min-w-0 ${
+                              currentKey
+                                ? 'border-blue-300 text-blue-800 bg-blue-50'
+                                : 'border-gray-200 text-gray-400'
+                            }`}
+                            value={currentKey}
+                            onChange={e => updateCol(ci, e.target.value)}
+                          >
+                            <option value="">(Bỏ qua)</option>
+                            {fields.map(f => (
+                              <option key={f.key} value={f.key}>
+                                {f.label}{mappedKeys.has(f.key) && f.key !== currentKey ? ' ✓' : ''}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* clear button */}
+                          {currentKey && (
+                            <button
+                              type="button"
+                              className="text-gray-300 hover:text-red-400 text-xs shrink-0 leading-none"
+                              title="Bỏ qua cột này"
+                              onClick={() => updateCol(ci, '')}
+                            >✕</button>
+                          )}
+                        </div>
                       )
                     })}
-                    {preview.isHeader && preview.headerRow.map((h, ci) =>
-                      preview.colMap[ci] == null && h
-                        ? <span key={`u-${ci}`} className="text-[10px] bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded border border-gray-200 line-through">{h}</span>
-                        : null
-                    )}
                   </div>
 
-                  {/* Preview table */}
-                  <div className="overflow-auto max-h-52 border border-gray-200 rounded text-xs">
-                    <table className="w-full border-collapse">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          {Object.values(preview.colMap).map((key, i) => (
-                            <th key={i} className="px-2 py-1.5 text-left font-medium text-gray-600 border-b border-gray-200 whitespace-nowrap">
-                              {fields.find(f => f.key === key)?.label || key}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {preview.items.slice(0, 8).map((item, ri) => (
-                          <tr key={ri} className={ri % 2 ? 'bg-gray-50' : ''}>
-                            {Object.values(preview.colMap).map((key, ci) => (
-                              <td key={ci} className="px-2 py-1 border-b border-gray-100 text-gray-700 whitespace-nowrap max-w-[160px] truncate">
-                                {String(item[key] ?? '')}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                        {preview.items.length > 8 && (
-                          <tr>
-                            <td colSpan={Object.keys(preview.colMap).length} className="px-2 py-1.5 text-gray-400 text-center italic">
-                              … và {preview.items.length - 8} dòng nữa
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                  {/* quick legend */}
+                  <div className="px-3 pb-2 flex gap-3 text-[10px] text-gray-400">
+                    <span><span className="text-blue-600 font-medium">✓</span> = đã dùng bởi cột khác (chọn sẽ tự chuyển)</span>
+                    <span>Chọn <em>(Bỏ qua)</em> để bỏ qua cột đó</span>
                   </div>
                 </div>
               )}
+
+              {/* ── Preview table ── */}
+              {parsed && items.length > 0 && (() => {
+                const visibleCols = sortedEntries(colMap).filter(([, k]) => k !== '')
+                return (
+                  <div className="space-y-1">
+                    <span className="text-xs text-gray-500">
+                      Xem trước {Math.min(items.length, 8)}/{items.length} dòng:
+                    </span>
+                    <div className="overflow-auto max-h-52 border border-gray-200 rounded text-xs">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            {visibleCols.map(([ci, key]) => (
+                              <th
+                                key={ci}
+                                className="px-2 py-1.5 text-left font-medium text-gray-600 border-b border-gray-200 whitespace-nowrap"
+                              >
+                                {fields.find(f => f.key === key)?.label || key}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.slice(0, 8).map((item, ri) => (
+                            <tr key={ri} className={ri % 2 ? 'bg-gray-50' : ''}>
+                              {visibleCols.map(([ci, key]) => (
+                                <td
+                                  key={ci}
+                                  className="px-2 py-1 border-b border-gray-100 text-gray-700 whitespace-nowrap max-w-[160px] truncate"
+                                >
+                                  {String(item[key] ?? '')}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                          {items.length > 8 && (
+                            <tr>
+                              <td
+                                colSpan={visibleCols.length}
+                                className="px-2 py-1.5 text-gray-400 text-center italic"
+                              >
+                                … và {items.length - 8} dòng nữa
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {parsed && items.length === 0 && mappedCount === 0 && (
+                <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                  ⚠ Không có cột nào được map. Nhấn 🔧 để gán cột thủ công.
+                </p>
+              )}
             </div>
 
-            {/* Footer */}
+            {/* ── Footer ── */}
             <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2 shrink-0">
               <button className="btn-secondary text-sm" onClick={close}>Hủy</button>
               <button
                 className="btn-primary text-sm"
                 onClick={confirm}
-                disabled={!preview?.items?.length}
+                disabled={!items.length}
               >
-                ✅ Import {preview?.items?.length ? `${preview.items.length} dòng` : ''}
+                ✅ Import {items.length ? `${items.length} dòng` : ''}
               </button>
             </div>
           </div>
