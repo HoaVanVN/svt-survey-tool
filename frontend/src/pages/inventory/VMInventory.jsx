@@ -215,6 +215,7 @@ export default function VMInventory() {
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [rvtoolsInfo, setRvtoolsInfo] = useState(null)  // full raw rvtools record
   const replaceRef = useRef(null)
   const mergeRef   = useRef(null)
@@ -245,6 +246,22 @@ export default function VMInventory() {
       toast.error('Lỗi khi lưu')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const clearAll = async () => {
+    if (items.length === 0) return
+    if (!window.confirm(`Xóa tất cả ${items.length} VMs khỏi danh sách?\n(Không xóa dữ liệu RVTools đã import)\nDữ liệu sẽ bị xóa và lưu ngay lập tức.`)) return
+    setClearing(true)
+    try {
+      setItems([])
+      await inventoryApi.saveCategory(id, 'virtual_machines', [])
+      markClean()
+      toast.success('Đã xóa tất cả Virtual Machines')
+    } catch {
+      toast.error('Lỗi khi xóa')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -503,14 +520,10 @@ export default function VMInventory() {
       <div className="flex justify-between pt-2">
         <button
           className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          onClick={() => {
-            if (items.length === 0) return
-            if (window.confirm(`Xóa tất cả ${items.length} VMs khỏi danh sách?\n(Không xóa dữ liệu RVTools đã import)`))
-              setItems([])
-          }}
-          disabled={items.length === 0}
+          onClick={clearAll}
+          disabled={items.length === 0 || clearing || saving}
         >
-          🗑️ Xóa VMs
+          {clearing ? '⏳ Đang xóa...' : '🗑️ Xóa VMs'}
         </button>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? '⏳ Đang lưu...' : '💾 Lưu'}

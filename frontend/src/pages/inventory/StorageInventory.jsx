@@ -60,6 +60,7 @@ export default function StorageInventory() {
   const refs = useRefs()
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const prevRef = useRef([])
 
   useEffect(() => {
@@ -100,6 +101,23 @@ export default function StorageInventory() {
     }
   }
 
+  const clearAll = async () => {
+    if (items.length === 0) return
+    if (!window.confirm(`Xóa tất cả ${items.length} Storage Systems?\nDữ liệu sẽ bị xóa và lưu ngay lập tức.`)) return
+    setClearing(true)
+    try {
+      setItems([])
+      prevRef.current = []
+      await api.saveCategory(id, 'storage_systems', [])
+      markClean()
+      toast.success('Đã xóa tất cả Storage Systems')
+    } catch {
+      toast.error('Lỗi khi xóa')
+    } finally {
+      setClearing(false)
+    }
+  }
+
   // Quick totals (sum raw/usable × qty per device)
   const totalRaw    = items.reduce((s, d) => s + (parseFloat(d.raw_capacity_tb)    || 0) * (parseInt(d.qty) || 1), 0)
   const totalUsable = items.reduce((s, d) => s + (parseFloat(d.usable_capacity_tb) || 0) * (parseInt(d.qty) || 1), 0)
@@ -135,14 +153,10 @@ export default function StorageInventory() {
       <div className="flex justify-between pt-2">
         <button
           className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          onClick={() => {
-            if (items.length === 0) return
-            if (window.confirm(`Xóa tất cả ${items.length} Storage Systems?\nThay đổi sẽ không tự động lưu.`))
-              setItems([])
-          }}
-          disabled={items.length === 0}
+          onClick={clearAll}
+          disabled={items.length === 0 || clearing || saving}
         >
-          🗑️ Xóa tất cả
+          {clearing ? '⏳ Đang xóa...' : '🗑️ Xóa tất cả'}
         </button>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? '⏳ Đang lưu...' : '💾 Lưu'}

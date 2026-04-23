@@ -25,6 +25,7 @@ export default function ApplicationInventory() {
   const refs = useRefs()
   const [apps, setApps] = useState([])
   const [saving, setSaving] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
     api.getApplications(id)
@@ -44,6 +45,21 @@ export default function ApplicationInventory() {
     }
   }
 
+  const clearAll = async () => {
+    if (apps.length === 0) return
+    if (!window.confirm(`Xóa tất cả ${apps.length} ứng dụng?\nDữ liệu sẽ bị xóa và lưu ngay lập tức.`)) return
+    setClearing(true)
+    try {
+      setApps([])
+      await api.saveApplications(id, [])
+      toast.success('Đã xóa tất cả Application Inventory')
+    } catch {
+      toast.error('Lỗi khi xóa')
+    } finally {
+      setClearing(false)
+    }
+  }
+
   return (
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
@@ -53,7 +69,14 @@ export default function ApplicationInventory() {
         </h3>
       </div>
       <InventoryTable fields={FIELDS} items={apps} onChange={setApps} refs={refs} />
-      <div className="flex justify-end pt-2">
+      <div className="flex justify-between pt-2">
+        <button
+          className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={clearAll}
+          disabled={apps.length === 0 || clearing || saving}
+        >
+          {clearing ? '⏳ Đang xóa...' : '🗑️ Xóa tất cả'}
+        </button>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? '⏳ Đang lưu...' : '💾 Lưu Application Inventory'}
         </button>
