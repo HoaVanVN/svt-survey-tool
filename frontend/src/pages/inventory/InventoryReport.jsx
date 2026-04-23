@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { inventory as api, exportApi } from '../../api'
 import DonutChart from '../../components/DonutChart'
+import { normalizeOS } from './VMInventory'
 
 // virtual_machines is intentionally excluded — VMs are tracked separately in ☁️ VM Inventory
 const SECTION_LABELS = {
@@ -128,6 +129,107 @@ export default function InventoryReport() {
           </button>
         </div>
       </div>
+
+      {/* VM Inventory summary */}
+      {summary && (summary.virtual_machines || []).length > 0 && (() => {
+        const vms = summary.virtual_machines || []
+        const totalVMs  = vms.length
+        const poweredOn = vms.filter(v => (v.power_state || '').toLowerCase() === 'on' || (v.power_state || '') === 'On').length
+        const poweredOff = totalVMs - poweredOn
+        const totalVcpu = vms.reduce((s, v) => s + (parseInt(v.vcpu) || 0), 0)
+        const totalRam  = vms.reduce((s, v) => s + (parseInt(v.ram_gb) || 0), 0)
+        const totalDisk = vms.reduce((s, v) => s + (parseInt(v.disk_gb) || 0), 0)
+
+        // Group by os_type (fallback: normalizeOS(guest_os))
+        const osMap = {}
+        const osOnMap = {}
+        vms.forEach(v => {
+          const os = v.os_type || normalizeOS(v.guest_os) || 'Unknown'
+          osMap[os] = (osMap[os] || 0) + 1
+          if ((v.power_state || '') === 'On') osOnMap[os] = (osOnMap[os] || 0) + 1
+        })
+        const osDist = Object.entries(osMap)
+          .map(([os, count]) => ({ os, count, on: osOnMap[os] || 0 }))
+          .sort((a, b) => b.count - a.count)
+
+        return (
+          <div className="card">
+            <h4 className="font-medium text-gray-700 mb-3">
+              ☁️ Virtual Machines
+              <span className="ml-2 text-gray-400 font-normal text-xs">{totalVMs} VMs</span>
+            </h4>
+
+            {/* VM stats row */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+              {[
+                { label: 'Tổng VMs',    value: totalVMs,  color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
+                { label: 'Powered On',  value: poweredOn, color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
+                { label: 'Powered Off', value: poweredOff,color: 'text-gray-600',  bg: 'bg-gray-50',   border: 'border-gray-100' },
+                { label: 'Total vCPU',  value: totalVcpu, color: 'text-purple-700',bg: 'bg-purple-50', border: 'border-purple-100' },
+                { label: 'Total RAM (GB)', value: totalRam, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' },
+              ].map(s => (
+                <div key={s.label} className={`rounded-lg p-3 text-center border ${s.bg} ${s.border}`}>
+                  <div className={`text-xl font-bold ${s.color}`}>{s.value.toLocaleString()}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* OS distribution table */}
+            <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phân bổ OS</h5>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th className="table-hdr text-center w-8">#</th>
+                    <th className="table-hdr">Hệ điều hành</th>
+                    <th className="table-hdr text-center">Số VM</th>
+                    <th className="table-hdr text-center">% Tổng</th>
+                    <th className="table-hdr text-center">Powered On</th>
+                    <th className="table-hdr">Tỉ lệ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {osDist.map((row, i) => {
+                    const pct = totalVMs > 0 ? Math.round(row.count / totalVMs * 100) : 0
+                    return (
+                      <tr key={row.os} className="hover:bg-gray-50">
+                        <td className="table-cell text-center text-gray-400">{i + 1}</td>
+                        <td className="table-cell font-medium">{row.os}</td>
+                        <td className="table-cell text-center font-semibold">{row.count}</td>
+                        <td className="table-cell text-center text-gray-500">{pct}%</td>
+                        <td className="table-cell text-center text-green-700">{row.on > 0 ? row.on : '—'}</td>
+                        <td className="table-cell" style={{ minWidth: 100 }}>
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                              <div
+                                className="bg-blue-400 h-1.5 rounded-full"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-gray-400 text-[10px] w-6 text-right">{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 font-semibold">
+                    <td className="table-cell" colSpan={2}>Tổng</td>
+                    <td className="table-cell text-center">{totalVMs}</td>
+                    <td className="table-cell text-center">100%</td>
+                    <td className="table-cell text-center text-green-700">{poweredOn}</td>
+                    <td className="table-cell text-gray-400 text-[10px]">
+                      Disk: {totalDisk >= 1024 ? (totalDisk / 1024).toFixed(1) + ' TB' : totalDisk + ' GB'}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* EOS warning table */}
       {summary && supportStats.eos > 0 && (

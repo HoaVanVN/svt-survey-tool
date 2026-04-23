@@ -25,13 +25,17 @@ export default function Settings() {
     }).catch(() => toast.error('Không thể tải Reference Data'))
   }, [])
 
-  const addItem = (key) => setEdited(p => ({ ...p, [key]: [...(p[key] || []), ''] }))
+  const addItem  = (key) => setEdited(p => ({ ...p, [key]: [...(p[key] || []), ''] }))
   const removeItem = (key, i) => setEdited(p => ({ ...p, [key]: p[key].filter((_, j) => j !== i) }))
   const editItem = (key, i, val) => setEdited(p => {
     const arr = [...p[key]]
     arr[i] = val
     return { ...p, [key]: arr }
   })
+  const sortItems = (key) => setEdited(p => ({
+    ...p,
+    [key]: [...(p[key] || [])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  }))
 
   const save = async (key) => {
     setSaving(p => ({ ...p, [key]: true }))
@@ -107,11 +111,16 @@ export default function Settings() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
                   <button
                     className="btn-secondary text-xs"
                     onClick={() => addItem(key)}
                   >+ Thêm</button>
+                  <button
+                    className="btn-secondary text-xs"
+                    onClick={() => sortItems(key)}
+                    title="Sắp xếp theo thứ tự bảng chữ cái"
+                  >🔤 A→Z</button>
                   <button
                     className="btn-primary text-xs"
                     onClick={() => save(key)}
