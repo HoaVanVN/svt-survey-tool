@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { workload as api } from '../api'
+import PasteImportModal from '../components/PasteImportModal'
 
 const DEF_SURVEY = {
   env_type: 'Production', virt_platform: 'VMware', current_system: 'On-premise',
@@ -15,6 +16,21 @@ const DEF_SURVEY = {
 const DEF_ITEM = { name: '', workload_type: '', vm_count: 1, vcpu_per_vm: 4, ram_gb_per_vm: 16, disk_os_gb_per_vm: 100, disk_data_gb_per_vm: 500, iops_per_vm: 0, throughput_mbps_per_vm: 0, os_type: '', tier: 'Tier 2', notes: '' }
 
 const WORKLOAD_TYPES = ['Web/App Server', 'Database', 'File Server', 'Email Server', 'ERP/CRM', 'Monitoring', 'Dev/Test', 'Container', 'HPC', 'Khác']
+
+const PASTE_FIELDS = [
+  { key: 'name',                  label: 'Tên Workload',    type: 'text',   pasteAlts: ['name', 'tên', 'workload', 'application', 'app'] },
+  { key: 'workload_type',         label: 'Loại',            type: 'text',   pasteAlts: ['type', 'loại', 'workload type', 'category'] },
+  { key: 'vm_count',              label: 'Số VM',           type: 'number', pasteAlts: ['vms', 'vm count', 'số vm', 'count', 'quantity', 'số lượng'] },
+  { key: 'vcpu_per_vm',           label: 'vCPU/VM',         type: 'number', pasteAlts: ['vcpu', 'cpu', 'cores', 'vcpu per vm', 'core per vm'] },
+  { key: 'ram_gb_per_vm',         label: 'RAM (GB)/VM',     type: 'number', pasteAlts: ['ram', 'memory', 'ram gb', 'ram per vm', 'memory gb'] },
+  { key: 'disk_os_gb_per_vm',     label: 'Disk OS (GB)/VM', type: 'number', pasteAlts: ['os disk', 'disk os', 'os gb', 'boot disk', 'system disk'] },
+  { key: 'disk_data_gb_per_vm',   label: 'Disk Data (GB)/VM', type: 'number', pasteAlts: ['data disk', 'disk data', 'data gb', 'data storage'] },
+  { key: 'iops_per_vm',           label: 'IOPS/VM',         type: 'number', pasteAlts: ['iops', 'iops per vm'] },
+  { key: 'throughput_mbps_per_vm',label: 'Throughput MB/s', type: 'number', pasteAlts: ['bandwidth', 'throughput', 'mbps', 'bw', 'mb/s'] },
+  { key: 'os_type',               label: 'OS Type',         type: 'text',   pasteAlts: ['os', 'os type', 'operating system', 'guest os'] },
+  { key: 'tier',                  label: 'Tier',            type: 'text',   pasteAlts: ['tier', 'priority', 'criticality', 'sla'] },
+  { key: 'notes',                 label: 'Ghi chú',         type: 'text',   pasteAlts: ['notes', 'note', 'comment', 'remarks', 'ghi chú'] },
+]
 const TIERS = ['Tier 1 – Critical', 'Tier 2 – Important', 'Tier 3 – Standard', 'Tier 4 – Archive']
 const OS_TYPES = ['Windows Server 2019', 'Windows Server 2022', 'RHEL 8', 'RHEL 9', 'Ubuntu 22.04', 'Ubuntu 24.04', 'CentOS 7', 'Debian 12', 'Khác']
 
@@ -103,7 +119,17 @@ export default function WorkloadSurvey() {
             <span className="bg-brand-100 text-brand-700 rounded px-2 py-0.5 text-xs font-bold">B</span>
             Chi tiết Workload / VM Groups
           </h3>
-          <button className="btn-secondary text-xs" onClick={addItem}>+ Thêm Workload</button>
+          <div className="flex gap-2">
+            <PasteImportModal
+              fields={PASTE_FIELDS}
+              defaultItem={{ ...DEF_ITEM }}
+              onImport={(rows, mode) => {
+                if (mode === 'replace') setData(p => ({ ...p, workload_items: rows }))
+                else setData(p => ({ ...p, workload_items: [...p.workload_items, ...rows] }))
+              }}
+            />
+            <button className="btn-secondary text-xs" onClick={addItem}>+ Thêm Workload</button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">

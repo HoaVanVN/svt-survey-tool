@@ -1,5 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
+import PasteImportModal from './PasteImportModal'
 
+// ── EOS badge ─────────────────────────────────────────────────────────────────
 function parseEOS(val) {
   if (!val || !String(val).trim()) return null
   const s = String(val).trim()
@@ -22,10 +24,65 @@ function EOSBadge({ value }) {
   )
 }
 
+// ── Disk Tier list cell ───────────────────────────────────────────────────────
+const DISK_TIERS = ['Tier0 – NVMe', 'Tier1 – SSD', 'Tier2 – HDD 10K/15K', 'Tier3 – HDD 7.2K']
+
+function TierListCell({ value, onChange }) {
+  const list = Array.isArray(value) ? value : []
+
+  const add = () => onChange([...list, { tier: DISK_TIERS[0], raw_tb: 0 }])
+  const remove = (i) => onChange(list.filter((_, j) => j !== i))
+  const setEntry = (i, f, v) => {
+    const next = [...list]
+    next[i] = { ...next[i], [f]: v }
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-1 min-w-[190px]">
+      {list.map((entry, i) => (
+        <div key={i} className="flex items-center gap-1">
+          <select
+            className="text-[10px] border-gray-200 rounded px-0.5 py-0.5 border flex-1 min-w-0"
+            value={entry.tier || DISK_TIERS[0]}
+            onChange={e => setEntry(i, 'tier', e.target.value)}
+          >
+            {DISK_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            className="border-gray-200 rounded px-1 py-0.5 border text-[10px] w-14 text-right"
+            placeholder="TB"
+            value={entry.raw_tb ?? ''}
+            onChange={e => setEntry(i, 'raw_tb', parseFloat(e.target.value) || 0)}
+          />
+          <span className="text-[9px] text-gray-400 shrink-0">TB</span>
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            className="text-red-300 hover:text-red-500 text-xs shrink-0 leading-none"
+            title="Xóa tier"
+          >×</button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={add}
+        className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5 leading-none"
+      >
+        + Add tier
+      </button>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function InventoryTable({ fields, items, onChange, refs = {} }) {
   const add = () => {
     const blank = {}
-    fields.forEach(f => { blank[f.key] = f.default ?? '' })
+    fields.forEach(f => { blank[f.key] = f.default ?? (f.type === 'tier_list' ? [] : '') })
     onChange([...items, blank])
   }
 
@@ -49,9 +106,30 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
     return f.options || []
   }
 
+  // Paste import: build field definitions suitable for PasteImportModal
+  const pasteFields = fields
+    .filter(f => f.type !== 'tier_list') // tier_list can't be pasted as plain text
+    .map(f => ({ key: f.key, label: f.label, type: f.type === 'eos' ? 'text' : f.type, pasteAlts: f.pasteAlts || [] }))
+
+  const defaultItem = {}
+  fields.forEach(f => { defaultItem[f.key] = f.default ?? (f.type === 'tier_list' ? [] : '') })
+
+  const handlePasteImport = (rows, mode) => {
+    if (mode === 'replace') {
+      onChange(rows)
+    } else {
+      onChange([...items, ...rows])
+    }
+  }
+
   return (
     <div>
-      <div className="flex justify-end mb-2">
+      <div className="flex justify-end mb-2 gap-2">
+        <PasteImportModal
+          fields={pasteFields}
+          defaultItem={defaultItem}
+          onImport={handlePasteImport}
+        />
         <button className="btn-secondary text-xs" onClick={add}>+ Thêm</button>
       </div>
       <div className="overflow-x-auto">
@@ -71,14 +149,21 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
                 <td className="table-cell text-center text-gray-400">{i + 1}</td>
                 {fields.map(f => (
                   <td key={f.key} className="table-cell p-1">
-                    {f.type === 'select' ? (
+                    {f.type === 'tier_list' ? (
+                      <TierListCell
+                        value={item[f.key]}
+                        onChange={val => set(i, f.key, val)}
+                      />
+                    ) : f.type === 'select' ? (
                       <select
                         className="text-xs border-gray-200 rounded px-1 py-1 border w-full"
                         value={item[f.key] ?? f.default ?? ''}
                         onChange={e => set(i, f.key, e.target.value)}
                       >
                         <option value="">--</option>
-                        {getOptions(f).map(o => <option key={o} value={o}>{o}</option>)}
+                        {getOptions(f).map(o => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
                       </select>
                     ) : f.type === 'number' ? (
                       <input
@@ -120,7 +205,7 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
           </tbody>
         </table>
         {!items.length && (
-          <p className="text-center text-gray-400 py-8 text-sm">Chưa có dữ liệu. Nhấn "+ Thêm" để bắt đầu.</p>
+          <p className="text-center text-gray-400 py-8 text-sm">Chưa có dữ liệu. Nhấn "+ Thêm" hoặc "📋 Paste từ Excel" để bắt đầu.</p>
         )}
       </div>
     </div>

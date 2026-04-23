@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { backup as api } from '../api'
+import PasteImportModal from '../components/PasteImportModal'
 
 const DEF = {
   backup_software: '', backup_target: '', air_gap_immutable: false, offsite_cloud: false, cloud_target: '', tape_required: false,
@@ -13,6 +14,16 @@ const DEF = {
 }
 const DEF_SRC = { name: '', data_type: '', size_tb: 0, growth_rate_pct: 10, backup_frequency: 'Daily', retention_days: 30, tier: 'Tier 2' }
 const DATA_TYPES = ['Máy ảo (VM)', 'CSDL (Database)', 'File Server', 'Exchange/Email', 'SharePoint', 'NAS', 'Physical Server', 'Khác']
+
+const BACKUP_PASTE_FIELDS = [
+  { key: 'name',              label: 'Tên nguồn dữ liệu', type: 'text',   pasteAlts: ['name', 'tên', 'source', 'data source', 'nguồn'] },
+  { key: 'data_type',         label: 'Loại',              type: 'text',   pasteAlts: ['type', 'loại', 'data type', 'category'] },
+  { key: 'size_tb',           label: 'Dung lượng (TB)',   type: 'number', pasteAlts: ['size', 'size tb', 'capacity', 'dung lượng', 'tb'] },
+  { key: 'growth_rate_pct',   label: 'Tăng trưởng (%)',   type: 'number', pasteAlts: ['growth', 'growth rate', 'tăng trưởng', '%'] },
+  { key: 'backup_frequency',  label: 'Tần suất',          type: 'text',   pasteAlts: ['frequency', 'tần suất', 'schedule', 'backup freq'] },
+  { key: 'retention_days',    label: 'Retention (ngày)',  type: 'number', pasteAlts: ['retention', 'days', 'ngày', 'keep days'] },
+  { key: 'tier',              label: 'Tier',              type: 'text',   pasteAlts: ['tier', 'priority', 'sla', 'criticality'] },
+]
 const FREQUENCIES = ['Hourly', '2x/day', 'Daily', '2x/week', 'Weekly', 'Monthly']
 const TIERS = ['Tier 1 – Critical', 'Tier 2 – Important', 'Tier 3 – Standard', 'Tier 4 – Archive']
 
@@ -124,7 +135,17 @@ export default function BackupSurvey() {
             <span className="bg-brand-100 text-brand-700 rounded px-2 py-0.5 text-xs font-bold">C</span>
             Nguồn dữ liệu Backup
           </h3>
-          <button className="btn-secondary text-xs" onClick={addSrc}>+ Thêm nguồn</button>
+          <div className="flex gap-2">
+            <PasteImportModal
+              fields={BACKUP_PASTE_FIELDS}
+              defaultItem={{ ...DEF_SRC }}
+              onImport={(rows, mode) => {
+                if (mode === 'replace') setData(p => ({ ...p, backup_sources: rows }))
+                else setData(p => ({ ...p, backup_sources: [...p.backup_sources, ...rows] }))
+              }}
+            />
+            <button className="btn-secondary text-xs" onClick={addSrc}>+ Thêm nguồn</button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
