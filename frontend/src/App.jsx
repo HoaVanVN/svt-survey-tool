@@ -24,6 +24,7 @@ import SizingReport from './pages/sizing/SizingReport'
 import OCPVirtSizing from './pages/sizing/OCPVirtSizing'
 import VMInventory from './pages/inventory/VMInventory'
 import RVToolsReport from './pages/inventory/RVToolsReport'
+import RefreshSizing from './pages/sizing/RefreshSizing'
 import DiagramsPage from './pages/inventory/DiagramsPage'
 
 export default function App() {
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="security" element={<SecuritySurvey />} />
               <Route path="ocp" element={<OCPSurvey />} />
               <Route path="ocp-virt" element={<OCPVirtSizing />} />
+              <Route path="refresh" element={<RefreshSizing />} />
               <Route path="results" element={<SizingResults />} />
               <Route path="report" element={<SizingReport />} />
             </Route>

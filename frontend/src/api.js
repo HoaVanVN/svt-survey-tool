@@ -14,6 +14,7 @@ export const workload = {
   get: (cid) => api.get(`/customers/${cid}/workload`),
   save: (cid, data) => api.put(`/customers/${cid}/workload`, data),
   sizing: (cid) => api.get(`/customers/${cid}/workload/sizing`),
+  refreshSizing: (cid, params = {}) => api.get(`/customers/${cid}/refresh-sizing`, { params }),
 }
 
 export const network = {

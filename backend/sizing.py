@@ -111,6 +111,97 @@ def calc_backup_sizing(survey: Any, sources: list) -> dict:
     }
 
 
+def calc_refresh_sizing(survey: Any, current_vms: list, new_workload_items: list) -> dict:
+    """
+    Size new infrastructure to host both current VMs (from inventory)
+    and new workloads (from workload survey items).
+    survey may be None — defaults are used in that case.
+    """
+    def _sp(attr, default):
+        return (getattr(survey, attr, None) if survey else None) or default
+
+    vr          = _sp('virt_ratio', 4)
+    cpu_oh      = _sp('cpu_overhead_pct', 10) / 100
+    ram_oh      = _sp('ram_overhead_pct', 10) / 100
+    ha          = _sp('ha_reserve_pct', 25) / 100
+    growth_yrs  = _sp('growth_years', 3)
+    growth_rate = _sp('growth_rate', 20) / 100
+    snap_pct    = _sp('storage_snapshot_pct', 20) / 100
+    sys_pct     = _sp('storage_syslog_pct', 15) / 100
+    dedup       = _sp('dedup_ratio', 2)
+    cpu_per_srv = (_sp('cpu_sockets', 2)) * (_sp('cores_per_socket', 16))
+    ram_per_srv = _sp('ram_per_server_gb', 512)
+
+    # ── Current workload from VM inventory ────────────────────────────────────
+    current_vcpu = sum(int(v.get('vcpu') or 0) for v in current_vms)
+    current_ram  = sum(float(v.get('ram_gb') or 0) for v in current_vms)
+    current_disk = sum(float(v.get('disk_gb') or 0) for v in current_vms)
+
+    # ── New workload items from workload survey ────────────────────────────────
+    new_vcpu = sum((i.vm_count or 0) * (i.vcpu_per_vm or 0) for i in new_workload_items)
+    new_ram  = sum((i.vm_count or 0) * (i.ram_gb_per_vm or 0) for i in new_workload_items)
+    new_disk = sum(
+        (i.vm_count or 0) * ((i.disk_os_gb_per_vm or 0) + (i.disk_data_gb_per_vm or 0))
+        for i in new_workload_items
+    )
+
+    total_vcpu = current_vcpu + new_vcpu
+    total_ram  = current_ram  + new_ram
+    total_disk = current_disk + new_disk
+
+    # ── Compute sizing ────────────────────────────────────────────────────────
+    pcpu_pre_ha  = (total_vcpu / vr) * (1 + cpu_oh) if vr else 0
+    pcpu_with_ha = pcpu_pre_ha * (1 + ha)
+    ram_pre_ha   = total_ram * (1 + ram_oh)
+    ram_with_ha  = ram_pre_ha * (1 + ha)
+
+    min_nodes_cpu = math.ceil(pcpu_with_ha / cpu_per_srv) if cpu_per_srv else 1
+    min_nodes_ram = math.ceil(ram_with_ha  / ram_per_srv) if ram_per_srv else 1
+    min_nodes     = max(min_nodes_cpu, min_nodes_ram, 2)
+    ha_nodes      = min_nodes + 1
+    growth_nodes  = math.ceil(ha_nodes * ((1 + growth_rate) ** growth_yrs) - ha_nodes)
+    total_nodes   = ha_nodes + growth_nodes
+
+    # ── Storage sizing ────────────────────────────────────────────────────────
+    raw_bd       = total_disk * (1 + snap_pct) * (1 + sys_pct)
+    usable_dedup = raw_bd / dedup if dedup else raw_bd
+    usable_grow  = usable_dedup * ((1 + growth_rate) ** growth_yrs)
+    usable_tb    = usable_grow / 1024
+
+    return {
+        # Breakdown
+        "current_vcpu":    current_vcpu,
+        "current_ram_gb":  round(current_ram, 1),
+        "current_disk_gb": round(current_disk, 1),
+        "new_vcpu":        round(new_vcpu, 1),
+        "new_ram_gb":      round(new_ram, 1),
+        "new_disk_gb":     round(new_disk, 1),
+        "total_vcpu":      total_vcpu,
+        "total_ram_gb":    round(total_ram, 1),
+        "total_disk_gb":   round(total_disk, 1),
+        # Compute
+        "pcpu_pre_ha":          round(pcpu_pre_ha, 1),
+        "pcpu_with_ha":         round(pcpu_with_ha, 1),
+        "ram_pre_ha_gb":        round(ram_pre_ha, 1),
+        "ram_with_ha_gb":       round(ram_with_ha, 1),
+        "cpu_per_server":       cpu_per_srv,
+        "ram_per_server_gb":    ram_per_srv,
+        "min_nodes":            min_nodes,
+        "ha_nodes":             ha_nodes,
+        "growth_nodes":         growth_nodes,
+        "total_nodes":          total_nodes,
+        "total_cpu_capacity":   total_nodes * cpu_per_srv,
+        "total_ram_capacity_gb":total_nodes * ram_per_srv,
+        # Storage
+        "storage": {
+            "total_disk_gb":  round(total_disk, 1),
+            "usable_tb":      round(usable_tb, 2),
+            "raw_raid5_tb":   round(usable_tb / 0.75, 2),
+            "raw_raid6_tb":   round(usable_tb / 0.66, 2),
+        },
+    }
+
+
 def calc_ocp_virt_sizing(survey: Any) -> dict:
     """Size additional OCP worker nodes needed for OpenShift Virtualization VM workloads."""
     workloads = survey.virt_workloads or []

@@ -9,6 +9,7 @@ const TABS = [
   { path: 'security', label: '🔒 Security' },
   { path: 'ocp', label: '☸️ OCP' },
   { path: 'ocp-virt', label: '🖥️ OCP Virt' },
+  { path: 'refresh', label: '🔄 Refresh' },
   { path: 'results', label: '📊 Kết quả' },
   { path: 'report', label: '📋 Báo cáo' },
 ]

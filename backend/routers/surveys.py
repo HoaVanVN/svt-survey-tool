@@ -224,6 +224,76 @@ def get_ocp_virt_sizing(customer_id: int, db: Session = Depends(get_db)):
     return sizing.calc_ocp_virt_sizing(s)
 
 
+# ── Refresh Sizing ────────────────────────────────────────────────────────────
+
+@router.get("/refresh-sizing")
+def get_refresh_sizing(
+    customer_id: int,
+    include_powered_off: bool = False,
+    include_new_workloads: bool = True,
+    db: Session = Depends(get_db),
+):
+    get_or_404(db, customer_id)
+
+    # VM inventory
+    inv = db.query(models.PhysicalInventory).filter(
+        models.PhysicalInventory.customer_id == customer_id
+    ).first()
+    all_vms = inv.virtual_machines if inv else []
+    servers  = inv.servers          if inv else []
+
+    powered_on  = [v for v in all_vms if (v.get('power_state') or 'On') == 'On']
+    current_vms = all_vms if include_powered_off else powered_on
+
+    # Workload survey (params + new items)
+    survey = db.query(models.WorkloadSurvey).filter(
+        models.WorkloadSurvey.customer_id == customer_id
+    ).first()
+    new_items = []
+    if survey and include_new_workloads:
+        new_items = db.query(models.WorkloadItem).filter(
+            models.WorkloadItem.survey_id == survey.id
+        ).all()
+
+    result = sizing.calc_refresh_sizing(survey, current_vms, new_items)
+
+    # Survey params snapshot (for display in UI)
+    survey_params = {}
+    if survey:
+        survey_params = {
+            "virt_ratio":           survey.virt_ratio,
+            "cpu_overhead_pct":     survey.cpu_overhead_pct,
+            "ram_overhead_pct":     survey.ram_overhead_pct,
+            "ha_reserve_pct":       survey.ha_reserve_pct,
+            "growth_years":         survey.growth_years,
+            "growth_rate":          survey.growth_rate,
+            "storage_snapshot_pct": survey.storage_snapshot_pct,
+            "storage_syslog_pct":   survey.storage_syslog_pct,
+            "dedup_ratio":          survey.dedup_ratio,
+            "cpu_sockets":          survey.cpu_sockets,
+            "cores_per_socket":     survey.cores_per_socket,
+            "ram_per_server_gb":    survey.ram_per_server_gb,
+        }
+
+    return {
+        "vm_inventory": {
+            "total":       len(all_vms),
+            "powered_on":  len(powered_on),
+            "powered_off": len(all_vms) - len(powered_on),
+            "included":    len(current_vms),
+        },
+        "new_workload": {
+            "items":      len(new_items),
+            "total_vcpu": sum((i.vm_count or 0) * (i.vcpu_per_vm or 0) for i in new_items),
+            "total_ram_gb": sum((i.vm_count or 0) * (i.ram_gb_per_vm or 0) for i in new_items),
+        },
+        "server_inventory": servers,
+        "survey_params":    survey_params,
+        "has_survey":       survey is not None,
+        "sizing":           result,
+    }
+
+
 @router.put("/ocp/virt-workloads")
 def save_ocp_virt_workloads(customer_id: int, data: dict, db: Session = Depends(get_db)):
     from typing import List, Any

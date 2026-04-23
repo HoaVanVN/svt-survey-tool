@@ -5,12 +5,17 @@ import DonutChart from '../../components/DonutChart'
 
 // virtual_machines is intentionally excluded — VMs are tracked separately in ☁️ VM Inventory
 const SECTION_LABELS = {
-  servers: { icon: '🖥️', label: 'Physical Servers' },
-  san_switches: { icon: '🔀', label: 'SAN Switches' },
+  servers:         { icon: '🖥️', label: 'Physical Servers' },
+  san_switches:    { icon: '🔀', label: 'SAN Switches' },
   storage_systems: { icon: '💿', label: 'Storage Systems' },
   network_devices: { icon: '🌐', label: 'Network Devices' },
-  wifi_aps: { icon: '📶', label: 'WiFi Access Points' },
-  applications: { icon: '📦', label: 'Applications' },
+  wifi_aps:        { icon: '📶', label: 'WiFi Access Points' },
+  applications:    { icon: '📦', label: 'Applications' },
+}
+
+// Count actual devices — multiply rows by their Quantity (SL) field
+function countDevices(items) {
+  return (items || []).reduce((s, item) => s + (parseInt(item.qty) || 1), 0)
 }
 
 function parseEOS(val) {
@@ -18,13 +23,8 @@ function parseEOS(val) {
   const s = String(val).trim()
   const parts = s.split('/')
   let year, month
-  if (parts.length === 2) {
-    month = parseInt(parts[0]) - 1
-    year = parseInt(parts[1])
-  } else {
-    year = parseInt(parts[0])
-    month = 11
-  }
+  if (parts.length === 2) { month = parseInt(parts[0]) - 1; year = parseInt(parts[1]) }
+  else { year = parseInt(parts[0]); month = 11 }
   if (isNaN(year)) return null
   return new Date(year, month, 1)
 }
@@ -44,25 +44,27 @@ export default function InventoryReport() {
     api.getAll(id).then(r => setSummary(r.data)).catch(() => {})
   }, [id])
 
-  // Only count categories in SECTION_LABELS (excludes virtual_machines)
+  // Total devices: sum of qty across all sections (excludes VMs)
   const total = summary
-    ? Object.keys(SECTION_LABELS).reduce((s, k) => s + (summary[k]?.length || 0), 0)
+    ? Object.keys(SECTION_LABELS).reduce((s, k) => s + countDevices(summary[k]), 0)
     : 0
 
-  // Support status breakdown — only physical/application inventory (excludes VMs)
+  // Support status breakdown — expand by qty
   const supportStats = { supported: 0, eos: 0, unknown: 0 }
   if (summary) {
     Object.keys(SECTION_LABELS).forEach(k => {
-      (summary[k] || []).forEach(item => {
-        supportStats[supportStatus(item)]++
+      ;(summary[k] || []).forEach(item => {
+        const qty = parseInt(item.qty) || 1
+        const st = supportStatus(item)
+        supportStats[st] += qty
       })
     })
   }
 
   const chartData = [
-    { label: 'Còn hỗ trợ', value: supportStats.supported, color: '#22c55e' },
-    { label: 'Hết hỗ trợ (EOS)', value: supportStats.eos, color: '#ef4444' },
-    { label: 'Chưa xác định', value: supportStats.unknown, color: '#d1d5db' },
+    { label: 'Còn hỗ trợ',      value: supportStats.supported, color: '#22c55e' },
+    { label: 'Hết hỗ trợ (EOS)', value: supportStats.eos,       color: '#ef4444' },
+    { label: 'Chưa xác định',    value: supportStats.unknown,   color: '#d1d5db' },
   ].filter(d => d.value > 0)
 
   return (
@@ -76,20 +78,27 @@ export default function InventoryReport() {
             <h4 className="text-sm font-semibold text-gray-600 mb-3">Theo hạng mục</h4>
             {summary ? (
               <div className="grid grid-cols-2 gap-2">
-                {Object.entries(SECTION_LABELS).map(([key, { icon, label }]) => (
-                  <div key={key} className="bg-gray-50 rounded-lg p-3 text-center border border-gray-100">
-                    <div className="text-xl mb-1">{icon}</div>
-                    <div className="text-lg font-bold text-gray-800">{summary[key]?.length || 0}</div>
-                    <div className="text-xs text-gray-500">{label}</div>
-                  </div>
-                ))}
+                {Object.entries(SECTION_LABELS).map(([key, { icon, label }]) => {
+                  const rows = (summary[key] || []).length
+                  const devices = countDevices(summary[key])
+                  return (
+                    <div key={key} className="bg-gray-50 rounded-lg p-3 text-center border border-gray-100">
+                      <div className="text-xl mb-1">{icon}</div>
+                      <div className="text-lg font-bold text-gray-800">{devices}</div>
+                      {devices !== rows && (
+                        <div className="text-[10px] text-gray-400">{rows} dòng × SL</div>
+                      )}
+                      <div className="text-xs text-gray-500">{label}</div>
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div className="text-center text-gray-400 py-8">Đang tải...</div>
             )}
             <div className="bg-blue-50 rounded-lg p-3 text-center border border-blue-100 mt-2">
               <div className="text-2xl font-bold text-blue-700">{total}</div>
-              <div className="text-xs text-blue-600">Tổng cộng</div>
+              <div className="text-xs text-blue-600">Tổng thiết bị (theo SL)</div>
             </div>
           </div>
 
@@ -132,6 +141,7 @@ export default function InventoryReport() {
                   <th className="table-hdr">Tên</th>
                   <th className="table-hdr">Model / Phiên bản</th>
                   <th className="table-hdr">Vendor</th>
+                  <th className="table-hdr text-center">SL</th>
                   <th className="table-hdr">End of Support</th>
                   <th className="table-hdr">Trạng thái</th>
                 </tr>
@@ -146,6 +156,7 @@ export default function InventoryReport() {
                         <td className="table-cell font-medium">{item.name || '-'}</td>
                         <td className="table-cell">{item.model || item.version || '-'}</td>
                         <td className="table-cell">{item.vendor || '-'}</td>
+                        <td className="table-cell text-center font-medium">{parseInt(item.qty) || 1}</td>
                         <td className="table-cell text-red-600 font-medium">{item.support_until || item.end_of_support || item.support_expiry}</td>
                         <td className="table-cell">
                           <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700 font-medium">EOS</span>
@@ -163,9 +174,16 @@ export default function InventoryReport() {
       {summary && Object.entries(SECTION_LABELS).map(([key, { icon, label }]) => {
         const items = summary[key] || []
         if (!items.length) return null
+        const deviceCount = countDevices(items)
         return (
           <div key={key} className="card">
-            <h4 className="font-medium text-gray-700 mb-3">{icon} {label} ({items.length})</h4>
+            <h4 className="font-medium text-gray-700 mb-3">
+              {icon} {label}
+              <span className="ml-2 text-gray-400 font-normal text-xs">
+                {deviceCount} thiết bị
+                {deviceCount !== items.length && ` (${items.length} dòng × SL)`}
+              </span>
+            </h4>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -189,15 +207,15 @@ export default function InventoryReport() {
                         <td className="table-cell font-medium">{item.name || '-'}</td>
                         <td className="table-cell">{item.model || item.version || '-'}</td>
                         <td className="table-cell">{item.vendor || '-'}</td>
-                        <td className="table-cell text-center">{item.qty || 1}</td>
+                        <td className="table-cell text-center font-semibold">{parseInt(item.qty) || 1}</td>
                         <td className="table-cell">{item.location || item.environment || '-'}</td>
                         <td className={`table-cell font-medium ${st === 'eos' ? 'text-red-600' : st === 'supported' ? 'text-green-600' : 'text-gray-400'}`}>
                           {item.support_until || item.end_of_support || item.support_expiry || '—'}
                         </td>
                         <td className="table-cell">
                           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                            st === 'eos' ? 'bg-red-100 text-red-700' :
-                            item.status === 'Using' ? 'bg-green-100 text-green-700' :
+                            st === 'eos'           ? 'bg-red-100 text-red-700'    :
+                            item.status === 'Using'   ? 'bg-green-100 text-green-700' :
                             item.status === 'Standby' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-gray-100 text-gray-600'
                           }`}>
