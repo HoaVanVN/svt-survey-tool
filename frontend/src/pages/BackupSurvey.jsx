@@ -149,6 +149,17 @@ export default function BackupSurvey() {
               }}
             />
             <button className="btn-secondary text-xs" onClick={addSrc}>+ Thêm nguồn</button>
+            <button
+              className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => {
+                if (data.backup_sources.length === 0) return
+                if (window.confirm(`Xóa tất cả ${data.backup_sources.length} nguồn dữ liệu backup?`))
+                  setData(p => ({ ...p, backup_sources: [] }))
+              }}
+              disabled={data.backup_sources.length === 0}
+            >
+              🗑️ Xóa tất cả
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">

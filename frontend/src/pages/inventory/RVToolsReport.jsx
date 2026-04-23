@@ -293,7 +293,6 @@ export default function RVToolsReport() {
     )
   }
 
-  const s = data.summary || {}
   const vinfo = data.vinfo || []
   const vhost = data.vhost || []
   const vcluster = data.vcluster || []
@@ -301,6 +300,16 @@ export default function RVToolsReport() {
   const vsnapshot = data.vsnapshot || []
   const vhealth = data.vhealth || []
   const vlicense = data.vlicense || []
+
+  // Live computations from vinfo (always up-to-date, never stale from stored summary)
+  const liveVMs       = filterRows(vinfo, 'VM')
+  const livePoweredOn = liveVMs.filter(r => (r['Powerstate'] || '').toLowerCase() === 'poweredon').length
+  const livePoweredOff = liveVMs.filter(r => (r['Powerstate'] || '').toLowerCase() === 'poweredoff').length
+  const liveTotalVcpu = liveVMs.reduce((s, r) => s + (Number(r['CPUs']) || 0), 0)
+  const liveTotalRamGib = Math.round(liveVMs.reduce((s, r) => s + (Number(r['Memory']) || 0), 0) / 1024)
+  const liveDiskMib   = liveVMs.reduce((s, r) => s + (Number(r['Total disk capacity MiB']) || Number(r['Provisioned MiB']) || 0), 0)
+  const liveTotalDiskTb = Math.round(liveDiskMib / 1024 / 1024 * 10) / 10
+  const liveHealthWarnings = filterRows(vhealth, 'Name').length
 
   // Use correct column name "Free MiB"
   const totalDsCapGib = vdatastore.reduce((acc, r) => acc + Number(r['Capacity MiB'] || 0) / 1024, 0)
@@ -329,38 +338,38 @@ export default function RVToolsReport() {
 
       {/* Summary cards – row 1 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        <SummaryCard icon="🖥️" label="Total VMs" value={fmtNum(s.total_vms)} color="blue" />
-        <SummaryCard icon="✅" label="Powered On" value={fmtNum(s.powered_on)} color="green" />
-        <SummaryCard icon="🔴" label="Powered Off" value={fmtNum(s.powered_off)} color="red" />
-        <SummaryCard icon="⚡" label="Total vCPU" value={fmtNum(s.total_vcpu)} color="purple" />
-        <SummaryCard icon="💾" label="Total RAM" value={`${fmtNum(s.total_ram_gib)} GiB`} color="blue" />
-        <SummaryCard icon="💿" label="Total Disk" value={`${s.total_disk_tb ?? 0} TB`} color="gray" />
+        <SummaryCard icon="🖥️" label="Total VMs" value={fmtNum(liveVMs.length)} color="blue" />
+        <SummaryCard icon="✅" label="Powered On" value={fmtNum(livePoweredOn)} color="green" />
+        <SummaryCard icon="🔴" label="Powered Off" value={fmtNum(livePoweredOff)} color="red" />
+        <SummaryCard icon="⚡" label="Total vCPU" value={fmtNum(liveTotalVcpu)} color="purple" />
+        <SummaryCard icon="💾" label="Total RAM" value={`${fmtNum(liveTotalRamGib)} GiB`} color="blue" />
+        <SummaryCard icon="💿" label="Total Disk" value={`${liveTotalDiskTb} TB`} color="gray" />
       </div>
 
       {/* Summary cards – row 2 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <SummaryCard icon="🗄️" label="ESXi Hosts" value={fmtNum(s.host_count ?? vhost.length)} color="blue" />
-        <SummaryCard icon="🔗" label="Clusters" value={fmtNum(s.cluster_count ?? vcluster.length)} color="blue" />
+        <SummaryCard icon="🗄️" label="ESXi Hosts" value={fmtNum(vhost.length)} color="blue" />
+        <SummaryCard icon="🔗" label="Clusters" value={fmtNum(vcluster.length)} color="blue" />
         <SummaryCard
           icon="💿"
           label="Datastores"
-          value={fmtNum(s.datastore_count ?? vdatastore.length)}
+          value={fmtNum(vdatastore.length)}
           sub={totalDsCapGib > 0 ? `${Math.round(totalDsCapGib).toLocaleString()} GiB total` : undefined}
           color="blue"
         />
         <SummaryCard
           icon="📷"
           label="Snapshots"
-          value={fmtNum(s.snapshot_count ?? vsnapshot.length)}
+          value={fmtNum(vsnapshot.length)}
           sub={totalSnapshotGib > 0 ? `${Math.round(totalSnapshotGib)} GiB` : undefined}
           color="orange"
         />
       </div>
 
-      {s.health_warning_count > 0 && (
+      {liveHealthWarnings > 0 && (
         <div className="card !py-2 bg-amber-50 border border-amber-200">
           <p className="text-sm text-amber-800 font-medium">
-            ⚠️ {fmtNum(s.health_warning_count)} health warnings found — check vHealth section below
+            ⚠️ {fmtNum(liveHealthWarnings)} health warnings found — check vHealth section below
           </p>
         </div>
       )}

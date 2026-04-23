@@ -133,6 +133,17 @@ export default function WorkloadSurvey() {
               }}
             />
             <button className="btn-secondary text-xs" onClick={addItem}>+ Thêm Workload</button>
+            <button
+              className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => {
+                if (data.workload_items.length === 0) return
+                if (window.confirm(`Xóa tất cả ${data.workload_items.length} workload items?`))
+                  setData(p => ({ ...p, workload_items: [] }))
+              }}
+              disabled={data.workload_items.length === 0}
+            >
+              🗑️ Xóa tất cả
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">

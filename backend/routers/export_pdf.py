@@ -77,6 +77,44 @@ def _tbl_style(header_color=MID_BLUE):
     ])
 
 
+def _kv_tbl_style():
+    """Style for key-value info tables (no header row): light-blue label column, alternating value rows."""
+    from reportlab.platypus import TableStyle
+    from reportlab.lib import colors
+    fn, fb = _get_fonts()
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor(LIGHT_BLUE)),
+        ("FONTNAME", (0, 0), (0, -1), fb),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (1, 0), (-1, -1), [colors.white, colors.HexColor(GRAY)]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING", (0, 0), (-1, -1), 4),
+        ("WORDWRAP", (0, 0), (-1, -1), True),
+    ])
+
+
+def _summary_tbl_style():
+    """Style for summary tables: blue header row, alternating data rows, green highlight on last (total) row."""
+    from reportlab.platypus import TableStyle
+    from reportlab.lib import colors
+    fn, fb = _get_fonts()
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(MID_BLUE)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), fb),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor(GRAY)]),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E2EFDA")),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.HexColor("#375623")),
+        ("FONTNAME", (0, -1), (-1, -1), fb),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING", (0, 0), (-1, -1), 4),
+        ("WORDWRAP", (0, 0), (-1, -1), True),
+    ])
+
+
 def _page_footer(canvas, doc, customer_name, report_type):
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
@@ -129,8 +167,8 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Ngày khảo sát:", c.survey_date or ""],
         ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
-    info_tbl = Table([[P(r[0], "header"), P(r[1])] for r in info], colWidths=[80*mm, 160*mm])
-    info_tbl.setStyle(_tbl_style(DARK_BLUE))
+    info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info], colWidths=[80*mm, 160*mm])
+    info_tbl.setStyle(_kv_tbl_style())
     story.append(info_tbl)
 
     def section_table(title, headers, rows, col_widths=None):
@@ -250,10 +288,10 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Tape Libraries", str(len(tapes))],
         ["Virtual Machines", str(len(vms))],
         ["Applications", str(len(apps))],
-        [P("TỔNG CỘNG", "header"), P(str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(tapes)+len(vms)+len(apps)), "header")],
+        ["TỔNG CỘNG", str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(tapes)+len(vms)+len(apps))],
     ]
     sum_tbl = Table(summary_data, colWidths=[100*mm, 80*mm])
-    sum_tbl.setStyle(_tbl_style())
+    sum_tbl.setStyle(_summary_tbl_style())
     story.append(sum_tbl)
 
     footer_cb = functools.partial(_page_footer, customer_name=c.name, report_type="Inventory Report")
@@ -304,8 +342,8 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Presales:", c.presales or ""], ["Ngày khảo sát:", c.survey_date or ""],
         ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
-    info_tbl = Table([[P(r[0], "header"), P(r[1])] for r in info_rows], colWidths=[50*mm, 120*mm])
-    info_tbl.setStyle(_tbl_style(DARK_BLUE))
+    info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info_rows], colWidths=[50*mm, 120*mm])
+    info_tbl.setStyle(_kv_tbl_style())
     story.append(info_tbl)
 
     def section_header(title):
@@ -316,7 +354,7 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
         data = [[P(r[0], "label"), P(str(r[1]) if r[1] is not None else "", "result" if len(r) > 2 else "body"),
                  P(r[2] if len(r) > 2 else "")] for r in rows]
         tbl = Table(data, colWidths=[80*mm, 40*mm, 60*mm])
-        tbl.setStyle(_tbl_style())
+        tbl.setStyle(_kv_tbl_style())
         story.append(tbl)
 
     # Workload list

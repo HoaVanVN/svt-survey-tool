@@ -55,7 +55,18 @@ export default function CategoryPage({ title, category, fields }) {
         </div>
       </div>
       <InventoryTable fields={fields} items={items} onChange={setItems} refs={refs} />
-      <div className="flex justify-end pt-2">
+      <div className="flex justify-between pt-2">
+        <button
+          className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={() => {
+            if (items.length === 0) return
+            if (window.confirm(`Xóa tất cả ${items.length} thiết bị trong "${title}"?\nThay đổi sẽ không tự động lưu.`))
+              setItems([])
+          }}
+          disabled={items.length === 0}
+        >
+          🗑️ Xóa tất cả
+        </button>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? '⏳ Đang lưu...' : '💾 Lưu'}
         </button>
