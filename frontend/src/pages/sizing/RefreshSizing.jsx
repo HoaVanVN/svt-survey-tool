@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { workload as api } from '../../api'
+import { buildTierSummary, totalUsableTb, totalRawTb, tierColor } from '../../utils/storageUtils'
 
 // ── Small reusable cards ──────────────────────────────────────────────────────
 function StatCard({ label, value, unit = '', sub, color = 'blue' }) {
@@ -88,11 +89,12 @@ export default function RefreshSizing() {
 
   useEffect(() => { fetchData() }, [id, includePoweredOff, includeNewWorkloads])
 
-  const sz  = data?.sizing
-  const vmi = data?.vm_inventory
-  const nwl = data?.new_workload
-  const sp  = data?.survey_params || {}
-  const srv = data?.server_inventory || []
+  const sz   = data?.sizing
+  const vmi  = data?.vm_inventory
+  const nwl  = data?.new_workload
+  const sp   = data?.survey_params || {}
+  const srv  = data?.server_inventory || []
+  const stor = data?.storage_inventory || []
 
   // ── Existing server capacity from inventory ───────────────────────────────
   const existingCores = srv.reduce((s, sv) => {
@@ -322,12 +324,119 @@ export default function RefreshSizing() {
           {/* ── D. Storage Sizing Result ─────────────────────────────────── */}
           <div className="card">
             <SectionTitle color="#059669">💿 D. Kết quả Sizing — Primary Storage</SectionTitle>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Total disk (combined)"  value={`${(sz.storage.total_disk_gb/1024).toFixed(1)}`} unit="TB" color="blue" />
-              <StatCard label="Usable after dedup+growth" value={sz.storage.usable_tb}  unit="TB" color="purple" />
-              <StatCard label="⭐ Raw needed (RAID 5)"  value={sz.storage.raw_raid5_tb} unit="TB" color="green" sub="75% efficiency" />
-              <StatCard label="⭐ Raw needed (RAID 6)"  value={sz.storage.raw_raid6_tb} unit="TB" color="green" sub="66% efficiency" />
+
+            {/* Required storage stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <StatCard label="Total disk (combined)"     value={`${(sz.storage.total_disk_gb/1024).toFixed(1)}`} unit="TB" color="blue" />
+              <StatCard label="Usable (after dedup+growth)" value={sz.storage.usable_tb}  unit="TB" color="purple" />
+              <StatCard label="⭐ Raw needed (RAID 5)"    value={sz.storage.raw_raid5_tb} unit="TB" color="green" sub="75% efficiency" />
+              <StatCard label="⭐ Raw needed (RAID 6)"    value={sz.storage.raw_raid6_tb} unit="TB" color="green" sub="66% efficiency" />
             </div>
+
+            {/* Current storage capacity comparison */}
+            {stor.length > 0 && (() => {
+              const curRaw    = totalRawTb(stor)
+              const curUsable = totalUsableTb(stor)
+              const tierMap   = buildTierSummary(stor)
+              const tierEntries = Object.entries(tierMap).sort((a, b) => b[1].raw_tb - a[1].raw_tb)
+              const reqUsable = sz.storage.usable_tb
+              const reqRaid5  = sz.storage.raw_raid5_tb
+              const reqRaid6  = sz.storage.raw_raid6_tb
+
+              return (
+                <div className="mt-2 border-t border-gray-200 pt-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                    📊 So sánh: Storage hiện tại vs Yêu cầu
+                  </h4>
+
+                  {/* Compare bars */}
+                  <div className="grid md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                      <CompareBar label="Usable capacity (TB)" current={curUsable} recommended={reqUsable} unit="TB" />
+                      <CompareBar label="Raw needed – RAID 5 (TB)" current={curRaw} recommended={reqRaid5} unit="TB" />
+                      <CompareBar label="Raw needed – RAID 6 (TB)" current={curRaw} recommended={reqRaid6} unit="TB" />
+                    </div>
+
+                    {/* Summary stats */}
+                    <div className="space-y-2 text-sm">
+                      <div className={`p-3 rounded-lg border text-xs ${curUsable >= reqUsable ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                        {curUsable >= reqUsable
+                          ? `✅ Storage hiện tại đủ — Usable hiện có ${curUsable} TB ≥ yêu cầu ${reqUsable} TB`
+                          : `⚠️ Cần bổ sung storage — Thiếu ${(reqUsable - curUsable).toFixed(1)} TB usable`
+                        }
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          ['Hiện tại – Raw',    `${curRaw} TB`,    'text-blue-700'],
+                          ['Hiện tại – Usable', `${curUsable} TB`, 'text-green-700'],
+                          ['Yêu cầu – Usable',  `${reqUsable} TB`, 'text-purple-700'],
+                          ['Yêu cầu – RAID 6',  `${reqRaid6} TB`,  'text-orange-700'],
+                        ].map(([l, v, c]) => (
+                          <div key={l} className="bg-gray-50 rounded p-2 border border-gray-100">
+                            <p className="text-[10px] text-gray-500">{l}</p>
+                            <p className={`text-sm font-bold ${c}`}>{v}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per-tier breakdown */}
+                  {tierEntries.length > 0 && (
+                    <>
+                      <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Phân bổ capacity theo Disk Tier (hiện tại)
+                      </h5>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr>
+                              <th className="table-hdr">Tier</th>
+                              <th className="table-hdr text-center">Raw (TB)</th>
+                              <th className="table-hdr text-center">Usable (TB)</th>
+                              <th className="table-hdr text-center">% Tổng raw</th>
+                              <th className="table-hdr">Biểu đồ</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tierEntries.map(([tier, { raw_tb, usable_tb }]) => {
+                              const pct = curRaw > 0 ? Math.round(raw_tb / curRaw * 100) : 0
+                              return (
+                                <tr key={tier} className="hover:bg-gray-50">
+                                  <td className="table-cell font-medium">
+                                    <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: tierColor(tier) }} />
+                                    {tier}
+                                  </td>
+                                  <td className="table-cell text-center font-semibold">{raw_tb.toFixed(1)}</td>
+                                  <td className="table-cell text-center text-green-700">{usable_tb.toFixed(1)}</td>
+                                  <td className="table-cell text-center text-gray-500">{pct}%</td>
+                                  <td className="table-cell" style={{ minWidth: 100 }}>
+                                    <div className="flex items-center gap-1">
+                                      <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                        <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: tierColor(tier) }} />
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-gray-50 font-semibold">
+                              <td className="table-cell">Tổng</td>
+                              <td className="table-cell text-center">{curRaw.toFixed(1)} TB</td>
+                              <td className="table-cell text-center text-green-700">{curUsable.toFixed(1)} TB</td>
+                              <td className="table-cell text-center">100%</td>
+                              <td className="table-cell" />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
+            })()}
           </div>
 
           {/* ── E. Comparison with current infrastructure ────────────────── */}
@@ -396,13 +505,29 @@ export default function RefreshSizing() {
                 </span>
               </div>
               <div className="flex justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-                <span className="font-medium">II. Primary Storage (RAID 5)</span>
-                <span className="font-bold text-green-700">{sz.storage.raw_raid5_tb} TB raw</span>
+                <span className="font-medium">II. Primary Storage (RAID 5 – 75% eff.)</span>
+                <span className="font-bold text-green-700">{sz.storage.raw_raid5_tb} TB raw → {sz.storage.usable_tb} TB usable</span>
               </div>
               <div className="flex justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-                <span className="font-medium">II. Primary Storage (RAID 6)</span>
-                <span className="font-bold text-green-700">{sz.storage.raw_raid6_tb} TB raw</span>
+                <span className="font-medium">II. Primary Storage (RAID 6 – 66% eff.)</span>
+                <span className="font-bold text-green-700">{sz.storage.raw_raid6_tb} TB raw → {sz.storage.usable_tb} TB usable</span>
               </div>
+              {/* Current storage gap highlight */}
+              {stor.length > 0 && (() => {
+                const curUsable = totalUsableTb(stor)
+                const gap = sz.storage.usable_tb - curUsable
+                return gap > 0 ? (
+                  <div className="flex justify-between p-3 bg-orange-50 rounded-lg border border-orange-200">
+                    <span className="font-medium text-orange-800">⚠️ Bổ sung usable capacity</span>
+                    <span className="font-bold text-orange-700">+{gap.toFixed(1)} TB usable cần thêm</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-medium text-green-800">✅ Storage hiện tại đã đủ</span>
+                    <span className="font-bold text-green-700">Dư {(-gap).toFixed(1)} TB usable</span>
+                  </div>
+                )
+              })()}
             </div>
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 text-center">
               Bao gồm: {vmi.included} VMs hiện tại

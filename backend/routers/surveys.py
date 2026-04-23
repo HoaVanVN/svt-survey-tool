@@ -239,8 +239,9 @@ def get_refresh_sizing(
     inv = db.query(models.PhysicalInventory).filter(
         models.PhysicalInventory.customer_id == customer_id
     ).first()
-    all_vms = inv.virtual_machines if inv else []
-    servers  = inv.servers          if inv else []
+    all_vms         = inv.virtual_machines  if inv else []
+    servers         = inv.servers           if inv else []
+    storage_systems = inv.storage_systems   if inv else []
 
     powered_on  = [v for v in all_vms if (v.get('power_state') or 'On') == 'On']
     current_vms = all_vms if include_powered_off else powered_on
@@ -287,10 +288,11 @@ def get_refresh_sizing(
             "total_vcpu": sum((i.vm_count or 0) * (i.vcpu_per_vm or 0) for i in new_items),
             "total_ram_gb": sum((i.vm_count or 0) * (i.ram_gb_per_vm or 0) for i in new_items),
         },
-        "server_inventory": servers,
-        "survey_params":    survey_params,
-        "has_survey":       survey is not None,
-        "sizing":           result,
+        "server_inventory":   servers,
+        "storage_inventory":  storage_systems,
+        "survey_params":      survey_params,
+        "has_survey":         survey is not None,
+        "sizing":             result,
     }
 
 

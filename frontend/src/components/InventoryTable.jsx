@@ -74,6 +74,14 @@ function TierListCell({ value, onChange }) {
       >
         + Add tier
       </button>
+      {list.length > 0 && (() => {
+        const rawSum = list.reduce((s, t) => s + (parseFloat(t.raw_tb) || 0), 0)
+        return rawSum > 0 ? (
+          <div className="text-[10px] text-gray-400 text-right border-t border-gray-100 pt-0.5 mt-0.5">
+            Σ raw: <span className="font-medium text-gray-600">{rawSum.toFixed(1)} TB</span>
+          </div>
+        ) : null
+      })()}
     </div>
   )
 }

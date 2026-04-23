@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { inventory as api, exportApi } from '../../api'
 import DonutChart from '../../components/DonutChart'
 import { normalizeOS } from './VMInventory'
+import { buildTierSummary, totalRawTb, totalUsableTb, tierColor } from '../../utils/storageUtils'
 
 // virtual_machines is intentionally excluded — VMs are tracked separately in ☁️ VM Inventory
 const SECTION_LABELS = {
@@ -129,6 +130,110 @@ export default function InventoryReport() {
           </button>
         </div>
       </div>
+
+      {/* Storage capacity summary */}
+      {summary && (summary.storage_systems || []).length > 0 && (() => {
+        const devices   = summary.storage_systems || []
+        const rawTotal  = totalRawTb(devices)
+        const usableTotal = totalUsableTb(devices)
+        const tierSummary = buildTierSummary(devices)
+        const tierEntries = Object.entries(tierSummary).sort((a, b) => b[1].raw_tb - a[1].raw_tb)
+        const tierRawTotal = tierEntries.reduce((s, [, v]) => s + v.raw_tb, 0)
+
+        return (
+          <div className="card">
+            <h4 className="font-medium text-gray-700 mb-3">
+              💿 Storage Capacity
+              <span className="ml-2 text-gray-400 font-normal text-xs">
+                {countDevices(devices)} thiết bị
+              </span>
+            </h4>
+
+            {/* Totals */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              {[
+                { label: 'Tổng Raw',    value: rawTotal,                  unit: 'TB', color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
+                { label: 'Tổng Usable', value: usableTotal,               unit: 'TB', color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
+                { label: 'RAID Eff.',   value: rawTotal > 0 ? `${Math.round(usableTotal / rawTotal * 100)}%` : '—', unit: '', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-100' },
+                { label: 'Tier types',  value: tierEntries.length || '—', unit: '',   color: 'text-gray-700',  bg: 'bg-gray-50',   border: 'border-gray-100' },
+              ].map(s => (
+                <div key={s.label} className={`rounded-lg p-3 text-center border ${s.bg} ${s.border}`}>
+                  <div className={`text-xl font-bold ${s.color}`}>{typeof s.value === 'number' ? s.value.toLocaleString() : s.value}{s.unit && <span className="text-sm font-normal ml-1">{s.unit}</span>}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-tier breakdown */}
+            {tierEntries.length > 0 && (
+              <>
+                <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phân bổ theo Disk Tier</h5>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr>
+                        <th className="table-hdr">Disk Tier</th>
+                        <th className="table-hdr text-center"># Entries</th>
+                        <th className="table-hdr text-center">Raw (TB)</th>
+                        <th className="table-hdr text-center">Usable (TB)</th>
+                        <th className="table-hdr text-center">% Raw</th>
+                        <th className="table-hdr">Biểu đồ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tierEntries.map(([tier, { raw_tb, usable_tb, device_count }]) => {
+                        const pct = tierRawTotal > 0 ? Math.round(raw_tb / tierRawTotal * 100) : 0
+                        const eff = raw_tb > 0 ? Math.round(usable_tb / raw_tb * 100) : 0
+                        return (
+                          <tr key={tier} className="hover:bg-gray-50">
+                            <td className="table-cell font-medium">
+                              <span className="inline-block w-2 h-2 rounded-full mr-1.5 shrink-0" style={{ background: tierColor(tier) }} />
+                              {tier}
+                            </td>
+                            <td className="table-cell text-center">{device_count}</td>
+                            <td className="table-cell text-center font-semibold">{raw_tb.toFixed(1)}</td>
+                            <td className="table-cell text-center text-green-700 font-semibold">{usable_tb.toFixed(1)}</td>
+                            <td className="table-cell text-center text-gray-500">{pct}%</td>
+                            <td className="table-cell" style={{ minWidth: 110 }}>
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[9px] text-gray-400 w-9 text-right">Raw</span>
+                                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: tierColor(tier) }} />
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[9px] text-gray-400 w-9 text-right">Usable</span>
+                                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                    <div className="h-1.5 rounded-full bg-green-400" style={{ width: `${pct * eff / 100}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-50 font-semibold">
+                        <td className="table-cell" colSpan={2}>Tổng</td>
+                        <td className="table-cell text-center">{tierRawTotal.toFixed(1)} TB</td>
+                        <td className="table-cell text-center text-green-700">
+                          {tierEntries.reduce((s, [, v]) => s + v.usable_tb, 0).toFixed(1)} TB
+                        </td>
+                        <td className="table-cell text-center">100%</td>
+                        <td className="table-cell text-gray-400 text-[10px]">
+                          {tierRawTotal > 0 && `Eff: ${Math.round(tierEntries.reduce((s,[,v]) => s + v.usable_tb, 0) / tierRawTotal * 100)}%`}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* VM Inventory summary */}
       {summary && (summary.virtual_machines || []).length > 0 && (() => {
