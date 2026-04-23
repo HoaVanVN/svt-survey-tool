@@ -1,17 +1,49 @@
-// ── RAID efficiency ratios ────────────────────────────────────────────────────
+// ── RAID / Data Protection efficiency ratios ──────────────────────────────────
+// Usable = Raw × efficiency
 export const RAID_EFFICIENCY = {
-  'RAID 1':  0.50,
-  'RAID 5':  0.75,
-  'RAID 6':  0.66,
-  'RAID 10': 0.50,
-  'RAID 50': 0.75,
-  'RAID 60': 0.66,
-  'JBOD':    1.00,
+  // ── Traditional RAID ─────────────────────────────────────────────────────
+  'RAID 1':  0.50,   // 2-way mirror
+  'RAID 5':  0.75,   // (n-1)/n drives usable, typically 4+1
+  'RAID 6':  0.66,   // (n-2)/n drives usable, typically 4+2 ≈ 66%
+  'RAID 10': 0.50,   // 2-way mirror + stripe
+  'RAID 50': 0.75,   // RAID 5 + 0
+  'RAID 60': 0.66,   // RAID 6 + 0
+  'JBOD':    1.00,   // no parity
+
+  // ── Distributed RAID (IBM FlashSystem / Storwize) ─────────────────────────
+  'DRAID 5': 0.75,   // Distributed RAID 5 + distributed hot spare
+  'DRAID 6': 0.66,   // Distributed RAID 6 + distributed hot spare
+
+  // ── IBM ADAPT RAID (dynamic RAID with variable drives) ────────────────────
+  'ADAPT RAID 5': 0.75,  // Adaptive RAID, RAID-5 tier efficiency
+  'ADAPT RAID 6': 0.66,  // Adaptive RAID, RAID-6 tier efficiency
+
+  // ── HPE / NetApp ─────────────────────────────────────────────────────────
+  'Double Parity (DP)': 0.66,   // HPE MSA / 3PAR equivalent to RAID 6
+  'RAID-DP':  0.66,              // NetApp double parity
+
+  // ── VMware vSAN / HCI ────────────────────────────────────────────────────
+  'vSAN FTT1 (RAID 1)': 0.50,   // 2 copies, 1 failure tolerated
+  'vSAN FTT1 (RAID 5)': 0.75,   // EC in 4-node config
+  'vSAN FTT2 (RAID 6)': 0.67,   // EC in 6-node config
+  'vSAN FTT3 (RAID 1)': 0.33,   // 3 copies, 3 failures tolerated
+
+  // ── Erasure Coding ───────────────────────────────────────────────────────
+  'EC 4+2':  0.67,   // 4 data + 2 parity = 66.7% usable
+  'EC 8+2':  0.80,   // 8 data + 2 parity = 80.0% usable
+  'EC 16+2': 0.89,   // 16 data + 2 parity = 88.9% usable
+
+  // ── Ceph / Red Hat ODF ───────────────────────────────────────────────────
+  'Ceph Replication 3x':  0.33,  // 3-way replication
+  'Ceph Replication 2x':  0.50,  // 2-way replication
+  'Ceph EC 2+1':          0.67,  // 2 data + 1 parity
+  'Ceph EC 4+2':          0.67,  // 4 data + 2 parity
+  'Ceph EC 8+3':          0.73,  // 8 data + 3 parity
 }
 
 export const RAID_OPTIONS = Object.keys(RAID_EFFICIENCY)
 
-// Efficiency for a given RAID type (default RAID 6 = 0.66 if unknown)
+/** Efficiency for a given RAID type; defaults to RAID 6 (0.66) if unknown */
 export function raidEff(raidType) {
   return RAID_EFFICIENCY[raidType] ?? 0.66
 }
@@ -32,7 +64,7 @@ export function tierColor(tier) {
 
 /**
  * Build { tierName: { raw_tb, usable_tb, device_count } } from a list of
- * storage device objects that have tier_capacities, raid_type and qty fields.
+ * storage device objects (each with tier_capacities, raid_type, qty).
  */
 export function buildTierSummary(storageDevices) {
   const map = {}

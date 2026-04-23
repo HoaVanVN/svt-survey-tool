@@ -45,6 +45,7 @@ def _build_styles(fn, fb):
                                   spaceBefore=14, leftIndent=6, leading=18),
         "body": ParagraphStyle("body", fontName=fn, fontSize=9, spaceAfter=3, leading=12),
         "label": ParagraphStyle("label", fontName=fb, fontSize=9, textColor=colors.HexColor("#333333")),
+        "header": ParagraphStyle("header", fontName=fb, fontSize=9, textColor=colors.white),
         "result": ParagraphStyle("result", fontName=fb, fontSize=11, textColor=colors.HexColor("#006400")),
         "footer": ParagraphStyle("footer", fontName=fn, fontSize=8, textColor=colors.HexColor("#888888"),
                                  alignment=1),
@@ -128,7 +129,7 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Ngày khảo sát:", c.survey_date or ""],
         ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
-    info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info], colWidths=[80*mm, 160*mm])
+    info_tbl = Table([[P(r[0], "header"), P(r[1])] for r in info], colWidths=[80*mm, 160*mm])
     info_tbl.setStyle(_tbl_style(DARK_BLUE))
     story.append(info_tbl)
 
@@ -138,7 +139,7 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
         if not rows:
             story.append(P("   (Không có dữ liệu)", "body"))
             return
-        data = [[P(h, "label") for h in headers]]
+        data = [[P(h, "header") for h in headers]]
         for row in rows:
             data.append([P(str(v) if v is not None else "") for v in row])
         tbl = Table(data, colWidths=col_widths, repeatRows=1)
@@ -196,6 +197,32 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
           s.get("status",""), s.get("notes","")] for i, s in enumerate(wifis)],
     )
 
+    # Tape Libraries
+    tapes = (inv.tape_libraries or []) if inv else []
+    section_table(
+        "VI. TAPE LIBRARIES",
+        ["#", "Tên thiết bị", "Model", "Vendor", "Serial", "SL", "Drive Type", "Drives", "Slots",
+         "Capacity (TB)", "Backup SW", "Trạng thái", "Ghi chú"],
+        [[i+1, s.get("name",""), s.get("model",""), s.get("vendor",""), s.get("serial",""),
+          s.get("qty",1), s.get("drive_type",""), s.get("drive_count",""), s.get("slot_count",""),
+          s.get("raw_capacity_tb",""), s.get("software",""), s.get("status",""), s.get("notes","")]
+         for i, s in enumerate(tapes)],
+        col_widths=[8*mm,32*mm,32*mm,20*mm,25*mm,8*mm,22*mm,14*mm,12*mm,20*mm,22*mm,20*mm,None]
+    )
+
+    # Virtual Machines
+    vms = (inv.virtual_machines or []) if inv else []
+    section_table(
+        "VII. VIRTUAL MACHINES",
+        ["#", "Tên VM", "OS", "vCPU", "RAM (GB)", "Disk (GB)", "Cluster", "Host", "Hypervisor", "Power", "Trạng thái"],
+        [[i+1, s.get("name",""), s.get("os_type","") or s.get("guest_os",""),
+          s.get("vcpu",""), s.get("ram_gb",""), s.get("disk_gb",""),
+          s.get("cluster",""), s.get("host_server",""), s.get("hypervisor",""),
+          s.get("power_state",""), s.get("status","")]
+         for i, s in enumerate(vms)],
+        col_widths=[8*mm,36*mm,30*mm,14*mm,16*mm,16*mm,26*mm,28*mm,26*mm,14*mm,None]
+    )
+
     # Applications
     story.append(PageBreak())
     apps = (app_inv.applications or []) if app_inv else []
@@ -214,14 +241,16 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
     story.append(Spacer(1, 8*mm))
     story.append(P("  TỔNG KẾT INVENTORY", "section"))
     summary_data = [
-        [P("Hạng mục", "label"), P("Số lượng thiết bị / ứng dụng", "label")],
+        [P("Hạng mục", "header"), P("Số lượng thiết bị / ứng dụng", "header")],
         ["Physical Servers", str(len(servers))],
         ["SAN Switches", str(len(sans))],
         ["Storage Systems", str(len(stors))],
         ["Network Devices", str(len(nets))],
         ["WiFi Access Points", str(len(wifis))],
+        ["Tape Libraries", str(len(tapes))],
+        ["Virtual Machines", str(len(vms))],
         ["Applications", str(len(apps))],
-        [P("TỔNG CỘNG", "label"), P(str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(apps)), "label")],
+        [P("TỔNG CỘNG", "header"), P(str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(tapes)+len(vms)+len(apps)), "header")],
     ]
     sum_tbl = Table(summary_data, colWidths=[100*mm, 80*mm])
     sum_tbl.setStyle(_tbl_style())
@@ -275,7 +304,7 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Presales:", c.presales or ""], ["Ngày khảo sát:", c.survey_date or ""],
         ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
-    info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info_rows], colWidths=[50*mm, 120*mm])
+    info_tbl = Table([[P(r[0], "header"), P(r[1])] for r in info_rows], colWidths=[50*mm, 120*mm])
     info_tbl.setStyle(_tbl_style(DARK_BLUE))
     story.append(info_tbl)
 
@@ -293,7 +322,7 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
     # Workload list
     if items:
         section_header("I. WORKLOAD SURVEY")
-        wl_data = [[P(h, "label") for h in ["#", "Tên Workload", "Loại", "Số VM", "vCPU/VM", "RAM GB/VM",
+        wl_data = [[P(h, "header") for h in ["#", "Tên Workload", "Loại", "Số VM", "vCPU/VM", "RAM GB/VM",
                                              "Disk OS GB", "Disk Data GB", "IOPS", "Tier"]]]
         for i, it in enumerate(items):
             wl_data.append([P(str(i+1)), P(it.name or ""), P(it.workload_type or ""),
@@ -354,7 +383,7 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
     if ocp:
         ocp_sz = sz.calc_ocp_sizing(ocp)
         section_header(f"V. SIZING OPENSHIFT {ocp.ocp_version}")
-        ocp_data = [[P(h, "label") for h in ["Loại Node", "Số lượng", "Total vCPU", "Total RAM (GiB)", "Ghi chú"]]]
+        ocp_data = [[P(h, "header") for h in ["Loại Node", "Số lượng", "Total vCPU", "Total RAM (GiB)", "Ghi chú"]]]
         for name, data, note in [
             ("Control Plane (Master)", ocp_sz["master"], "etcd, API, Scheduler"),
             ("Worker Nodes", ocp_sz["worker"], f"Tăng trưởng → {ocp_sz['worker']['workers_with_growth']} nodes"),
@@ -374,7 +403,7 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
 
     # BOM summary
     section_header("VI. BILL OF MATERIALS – TÓM TẮT")
-    bom_rows = [[P("Hạng mục", "label"), P("Kết quả Sizing", "label"), P("Ghi chú", "label")]]
+    bom_rows = [[P("Hạng mục", "header"), P("Kết quả Sizing", "header"), P("Ghi chú", "header")]]
     if ws and items:
         comp = sz.calc_compute_sizing(ws, items)
         stor = sz.calc_storage_sizing(ws, items)

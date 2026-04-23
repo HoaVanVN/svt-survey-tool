@@ -184,6 +184,8 @@ class PhysicalInventory(Base):
     network_devices = Column(JSON, default=list)
     wifi_aps = Column(JSON, default=list)
     virtual_machines = Column(JSON, default=list)
+    tape_libraries = Column(JSON, default=list)
+    last_saved_at = Column(DateTime(timezone=True), onupdate=func.now())
     customer = relationship("Customer", back_populates="physical_inventory")
 
 

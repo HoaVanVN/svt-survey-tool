@@ -1,15 +1,107 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { customers as api } from '../api'
+import { customers as api, exportApi } from '../api'
 
 const EMPTY = { name: '', project_name: '', contact: '', email: '', phone: '', presales: '', survey_date: '', notes: '' }
 
+// ── Delete confirmation modal ─────────────────────────────────────────────────
+function DeleteModal({ customer, onConfirm, onCancel }) {
+  const [step, setStep] = useState(1)  // 1 = info + download, 2 = type name confirm
+  const [typedName, setTypedName] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirm = async () => {
+    if (typedName.trim() !== customer.name.trim()) return
+    setDeleting(true)
+    try {
+      await onConfirm()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="p-5 border-b border-gray-100">
+          <h3 className="text-lg font-semibold text-red-600">🗑️ Xóa khách hàng</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Tất cả dữ liệu khảo sát và inventory của{' '}
+            <span className="font-semibold text-gray-900">{customer.name}</span>{' '}
+            sẽ bị xóa vĩnh viễn.
+          </p>
+        </div>
+
+        {step === 1 ? (
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-gray-700 font-medium">
+              Khuyến nghị: tải xuống bản sao lưu trước khi xóa.
+            </p>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium transition-colors"
+                onClick={() => exportApi.excel(customer.id, customer.name)}
+              >
+                ⬇️ Excel
+              </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium transition-colors"
+                onClick={() => exportApi.inventoryPdf(customer.id, customer.name)}
+              >
+                📄 PDF
+              </button>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                className="flex-1 btn-secondary"
+                onClick={onCancel}
+              >Hủy</button>
+              <button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm"
+                onClick={() => setStep(2)}
+              >Tiếp tục xóa →</button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-gray-700">
+              Để xác nhận, hãy gõ tên khách hàng:{' '}
+              <span className="font-mono font-semibold text-gray-900 bg-gray-100 px-1 rounded">{customer.name}</span>
+            </p>
+            <input
+              type="text"
+              className="form-input w-full"
+              placeholder="Nhập tên khách hàng..."
+              value={typedName}
+              onChange={e => setTypedName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && typedName.trim() === customer.name.trim() && handleConfirm()}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button className="flex-1 btn-secondary" onClick={() => setStep(1)}>← Quay lại</button>
+              <button
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm"
+                disabled={typedName.trim() !== customer.name.trim() || deleting}
+                onClick={handleConfirm}
+              >
+                {deleting ? '⏳ Đang xóa...' : '🗑️ Xóa vĩnh viễn'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function CustomerList() {
   const [list, setList] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)  // customer object to delete
 
   const load = () => api.list().then(r => setList(r.data)).catch(() => toast.error('Không thể tải danh sách'))
 
@@ -28,14 +120,29 @@ export default function CustomerList() {
     finally { setSaving(false) }
   }
 
-  const del = async (id, name) => {
-    if (!confirm(`Xóa khách hàng "${name}"? Tất cả dữ liệu khảo sát sẽ bị xóa.`)) return
-    try { await api.delete(id); load(); toast.success('Đã xóa') }
-    catch { toast.error('Lỗi khi xóa') }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.delete(deleteTarget.id)
+      setDeleteTarget(null)
+      load()
+      toast.success('Đã xóa khách hàng')
+    } catch {
+      toast.error('Lỗi khi xóa')
+    }
   }
 
   return (
     <div className="space-y-6">
+      {/* Delete modal */}
+      {deleteTarget && (
+        <DeleteModal
+          customer={deleteTarget}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -49,11 +156,11 @@ export default function CustomerList() {
       <div className="flex gap-3 text-xs text-gray-500">
         <span className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded px-2 py-1">
           <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
-          🖥️ Inventory Tool – Kiểm kê thiết bị & ứng dụng
+          🖥️ Inventory Tool – Kiểm kê thiết bị &amp; ứng dụng
         </span>
         <span className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded px-2 py-1">
           <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
-          📐 Sizing Tool – Khảo sát & tính toán sizing
+          📐 Sizing Tool – Khảo sát &amp; tính toán sizing
         </span>
       </div>
 
@@ -102,7 +209,11 @@ export default function CustomerList() {
                   {c.survey_date && <p>📅 {c.survey_date}</p>}
                 </div>
               </div>
-              <button onClick={() => del(c.id, c.name)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-2 transition-opacity text-xs mt-0.5">✕</button>
+              <button
+                onClick={() => setDeleteTarget(c)}
+                className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-2 transition-opacity text-xs mt-0.5"
+                title="Xóa khách hàng"
+              >✕</button>
             </div>
 
             {/* Two tool buttons */}

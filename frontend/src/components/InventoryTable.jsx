@@ -110,7 +110,9 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
   }
 
   const getOptions = (f) => {
-    if (f.refType && refs[f.refType]?.length) return refs[f.refType]
+    if (f.refType && refs[f.refType]?.length) {
+      return [...refs[f.refType]].sort((a, b) => a.localeCompare(b))
+    }
     return f.options || []
   }
 

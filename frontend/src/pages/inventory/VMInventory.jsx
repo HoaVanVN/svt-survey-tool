@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { inventory as inventoryApi, rvtools as rvtoolsApi } from '../../api'
 import { useRefs } from '../../hooks/useRefs'
+import { useAutoSave } from '../../hooks/useAutoSave'
 import InventoryTable from '../../components/InventoryTable'
 
 const FIELDS = [
@@ -159,10 +160,19 @@ export default function VMInventory() {
       .catch(() => {})
   }, [id])
 
+  const doSave = useCallback(async () => {
+    await inventoryApi.saveCategory(id, 'virtual_machines', items)
+  }, [id, items])
+
+  const { isDirty, lastSaved, markClean } = useAutoSave(items, doSave)
+
+  const fmtTime = (d) => d ? d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
+
   const save = async () => {
     setSaving(true)
     try {
       await inventoryApi.saveCategory(id, 'virtual_machines', items)
+      markClean()
       toast.success('Đã lưu Virtual Machines')
     } catch {
       toast.error('Lỗi khi lưu')
@@ -247,9 +257,12 @@ export default function VMInventory() {
     <div className="card space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h3 className="font-semibold text-gray-800">
-            ☁️ Virtual Machines
-            <span className="text-gray-400 text-sm font-normal ml-2">({items.length} VMs)</span>
+          <h3 className="font-semibold text-gray-800 flex items-center gap-3">
+            <span>☁️ Virtual Machines
+              <span className="text-gray-400 text-sm font-normal ml-2">({items.length} VMs)</span>
+            </span>
+            {isDirty && <span className="text-xs text-amber-600 font-medium">● chưa lưu</span>}
+            {!isDirty && lastSaved && <span className="text-xs text-green-600">✓ tự động lưu {fmtTime(lastSaved)}</span>}
           </h3>
           {rvtoolsInfo?.source_filename && (
             <p className="text-xs text-gray-500 mt-0.5">

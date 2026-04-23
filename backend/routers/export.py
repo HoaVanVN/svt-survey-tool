@@ -424,6 +424,7 @@ def build_excel(customer_id: int, db: Session):
             ("STORAGE SYSTEMS", inv.storage_systems or []),
             ("NETWORK DEVICES", inv.network_devices or []),
             ("WIFI ACCESS POINTS", inv.wifi_aps or []),
+            ("TAPE LIBRARIES", inv.tape_libraries or []),
         ]:
             _section(ws6, row, 1, cat_name, 8)
             row += 1
@@ -481,6 +482,39 @@ def build_excel(customer_id: int, db: Session):
     if not apps:
         ws7a.merge_cells("A3:L3")
         _cell(ws7a, 3, 1, "Chưa có dữ liệu ứng dụng", align="center")
+
+    # ── Sheet 7b: VM Inventory ────────────────────────────────────────────────
+    vms = (inv.virtual_machines or []) if inv else []
+    ws7b = wb.create_sheet("VM INVENTORY")
+    for col_letter, w in [("A",5),("B",32),("C",28),("D",18),("E",14),("F",14),
+                           ("G",14),("H",18),("I",28),("J",28),("K",14),("L",14)]:
+        ws7b.column_dimensions[col_letter].width = w
+
+    ws7b.merge_cells("A1:L1")
+    ws7b["A1"].value = "VM INVENTORY – DANH MỤC MÁY ẢO"
+    ws7b["A1"].font = Font(bold=True, size=14, color=WHITE)
+    ws7b["A1"].fill = PatternFill("solid", fgColor=DARK_BLUE)
+    ws7b["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws7b.row_dimensions[1].height = 35
+
+    vm_hdrs = ["STT", "Tên VM", "Guest OS", "OS", "vCPU", "RAM (GB)", "Disk (GB)",
+               "Cluster", "Host", "Hypervisor", "Power", "Trạng thái"]
+    for j, h in enumerate(vm_hdrs, start=1):
+        _hdr(ws7b, 2, j, h, size=9)
+    ws7b.row_dimensions[2].height = 30
+
+    for i, vm in enumerate(vms, start=3):
+        if isinstance(vm, dict):
+            vals = [i - 2, vm.get("name",""), vm.get("guest_os",""), vm.get("os_type",""),
+                    vm.get("vcpu",""), vm.get("ram_gb",""), vm.get("disk_gb",""),
+                    vm.get("cluster",""), vm.get("host_server",""), vm.get("hypervisor",""),
+                    vm.get("power_state",""), vm.get("status","")]
+            for j, v in enumerate(vals, start=1):
+                _cell(ws7b, i, j, v, align="center" if j in [1,5,6,7] else "left")
+
+    if not vms:
+        ws7b.merge_cells("A3:L3")
+        _cell(ws7b, 3, 1, "Chưa có dữ liệu máy ảo", align="center")
 
     # ── Sheet 8: Security ────────────────────────────────────────────────────
     if sec and sec.responses:

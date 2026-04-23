@@ -23,6 +23,8 @@ def _run_migrations():
         "ALTER TABLE physical_inventories ADD COLUMN virtual_machines TEXT DEFAULT '[]'",
         "ALTER TABLE ocp_surveys ADD COLUMN virt_workloads TEXT DEFAULT '[]'",
         "ALTER TABLE reference_data ADD COLUMN updated_at DATETIME",
+        "ALTER TABLE physical_inventories ADD COLUMN tape_libraries TEXT DEFAULT '[]'",
+        "ALTER TABLE physical_inventories ADD COLUMN last_saved_at DATETIME",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -34,7 +36,7 @@ def _run_migrations():
 
 _run_migrations()
 
-app = FastAPI(title="SVT Survey Tool", version="2.1.7.2")
+app = FastAPI(title="SVT Survey Tool", version="2.2.0")
 
 # Trust X-Forwarded-For / X-Forwarded-Proto headers from Nginx Proxy Manager
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
@@ -61,7 +63,7 @@ app.include_router(diagrams_router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.7.2"}
+    return {"status": "ok", "version": "2.2.0"}
 
 @app.get("/api/security-questions")
 def get_questions():

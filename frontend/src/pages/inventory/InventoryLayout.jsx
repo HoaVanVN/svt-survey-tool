@@ -9,6 +9,7 @@ const TABS = [
   { path: 'network-devices', label: '🌐 Network' },
   { path: 'wifi', label: '📶 WiFi APs' },
   { path: 'vms', label: '☁️ Virtual Machines' },
+  { path: 'tape-libraries', label: '📼 Tape Libraries' },
   { path: 'applications', label: '📦 Applications' },
   { path: 'report', label: '📋 Báo cáo' },
   { path: 'rvtools-report', label: '📊 RVTools' },
