@@ -153,49 +153,30 @@ function dedupBy(arr1, arr2, key) {
 
 /** Parse one RVTools Excel file; returns { vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth, vlicense, vdisk } */
 async function parseRVToolsFile(file) {
-  // read-excel-file: browser-native, no CVEs (replaces xlsx/SheetJS CE which had CVE-2023-30533)
-  const mod = await import('read-excel-file')
-  const readXlsxFile  = mod.default
-  const readSheetNames = mod.readSheetNames
+  // SheetJS 0.20.2 loaded from CDN (index.html) – not from npm (avoids CVE-2023-30533 in xlsx@0.18.5).
+  // SheetJS is the only library that reliably handles all RVTools Excel variants (shared strings,
+  // rich text cells, legacy encoding, formula cells, etc.).
+  const XLSX = window.XLSX
+  if (!XLSX) throw new Error('SheetJS chưa tải – kiểm tra kết nối internet và thử lại.')
 
-  // Get actual sheet names from the workbook (casing varies across RVTools versions)
-  const allSheets = await readSheetNames(file)
-  const findSheet = (name) => allSheets.find(n => n.toLowerCase() === name.toLowerCase()) ?? null
+  const buf = await file.arrayBuffer()
+  const wb  = XLSX.read(new Uint8Array(buf), { type: 'array' })
 
-  const readSheet = async (name) => {
-    const actual = findSheet(name)
-    if (!actual) return []
-    try {
-      const rows = await readXlsxFile(file, { sheet: actual })
-      if (!rows || rows.length < 2) return []
-      // Row 0 = header row; rows 1+ = data
-      const headers = rows[0].map(h => (h !== null && h !== undefined ? String(h) : ''))
-      return rows.slice(1).map(row => {
-        const obj = {}
-        headers.forEach((h, i) => {
-          const v = row[i]
-          obj[h] = (v === null || v === undefined) ? '' : v
-        })
-        return obj
-      })
-    } catch {
-      return []  // sheet not found or unreadable
-    }
+  const getSheet = (name) => {
+    const sn = wb.SheetNames.find(n => n.toLowerCase() === name.toLowerCase())
+    return sn ? XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' }) : []
   }
 
-  const [vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth, vlicense, vdisk] =
-    await Promise.all([
-      readSheet('vInfo'),
-      readSheet('vHost'),
-      readSheet('vCluster'),
-      readSheet('vDatastore'),
-      readSheet('vSnapshot'),
-      readSheet('vHealth'),
-      readSheet('vLicense'),
-      readSheet('vDisk'),
-    ])
-
-  return { vinfo, vhost, vcluster, vdatastore, vsnapshot, vhealth, vlicense, vdisk }
+  return {
+    vinfo:      getSheet('vInfo'),
+    vhost:      getSheet('vHost'),
+    vcluster:   getSheet('vCluster'),
+    vdatastore: getSheet('vDatastore'),
+    vsnapshot:  getSheet('vSnapshot'),
+    vhealth:    getSheet('vHealth'),
+    vlicense:   getSheet('vLicense'),
+    vdisk:      getSheet('vDisk'),
+  }
 }
 
 /** Merge new RVTools data into existing accumulated data. */
@@ -473,10 +454,10 @@ export default function VMInventory() {
         {/* Import buttons */}
         <div className="flex gap-2 items-center">
           {/* Replace-all picker */}
-          <input type="file" accept=".xlsx" multiple ref={replaceRef} className="hidden"
+          <input type="file" accept=".xlsx,.xls" multiple ref={replaceRef} className="hidden"
             onChange={e => doImport(Array.from(e.target.files || []), 'replace')} />
           {/* Merge picker */}
-          <input type="file" accept=".xlsx" multiple ref={mergeRef} className="hidden"
+          <input type="file" accept=".xlsx,.xls" multiple ref={mergeRef} className="hidden"
             onChange={e => doImport(Array.from(e.target.files || []), 'merge')} />
 
           {hasRVTools ? (
