@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Outlet, NavLink, useParams } from 'react-router-dom'
 import { exportApi } from '../../api'
+import ExportModal from '../../components/ExportModal'
 
 const TABS = [
   { path: 'servers', label: '🖥️ Servers' },
@@ -18,9 +19,17 @@ const TABS = [
 
 export default function InventoryLayout() {
   const { id } = useParams()
+  const [showExportModal, setShowExportModal] = useState(false)
 
   return (
     <div className="space-y-3">
+      {showExportModal && (
+        <ExportModal
+          type="inventory"
+          onExport={params => { exportApi.inventoryPdf(id, null, params); setShowExportModal(false) }}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
       <div className="card !p-0 overflow-hidden">
         <div className="bg-blue-50 border-b border-blue-100 px-4 py-2 flex items-center justify-between gap-2 flex-wrap">
           <span className="text-sm font-semibold text-blue-800">🖥️ Inventory Tool</span>
@@ -31,7 +40,7 @@ export default function InventoryLayout() {
             >⬇️ Excel</button>
             <button
               className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors"
-              onClick={() => exportApi.inventoryPdf(id)}
+              onClick={() => setShowExportModal(true)}
             >📄 PDF</button>
           </div>
         </div>

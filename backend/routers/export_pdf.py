@@ -5,6 +5,7 @@ from database import get_db
 import models, sizing as sz
 import io
 from datetime import datetime
+from typing import Optional
 
 router = APIRouter(prefix="/customers/{customer_id}/export", tags=["export-pdf"])
 
@@ -126,12 +127,15 @@ def _page_footer(canvas, doc, customer_name, report_type):
 
 # ── Inventory PDF ─────────────────────────────────────────────────────────────
 
-def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
-    from reportlab.platypus import SimpleDocTemplate, Table, Paragraph, Spacer, PageBreak, HRFlowable
+def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, prepared_by=None,
+                        department=None, custom_note=None, include_diagrams=True) -> io.BytesIO:
+    from reportlab.platypus import SimpleDocTemplate, Table, Paragraph, Spacer, PageBreak, HRFlowable, Image
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
     from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
     import functools
+    import base64
 
     c = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
     if not c:
@@ -154,7 +158,8 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
 
     # Cover
     story.append(Spacer(1, 20*mm))
-    story.append(P("INFRASTRUCTURE INVENTORY REPORT", "title"))
+    title_text = report_title if report_title else "INFRASTRUCTURE INVENTORY REPORT"
+    story.append(P(title_text, "title"))
     story.append(P("Báo cáo Kiểm kê Hạ tầng CNTT", "subtitle"))
     story.append(HR())
 
@@ -165,11 +170,19 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
         ["Email:", c.email or ""],
         ["Presales:", c.presales or ""],
         ["Ngày khảo sát:", c.survey_date or ""],
-        ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
+    if prepared_by:
+        info.append(["Người lập báo cáo:", prepared_by])
+    if department:
+        info.append(["Phòng ban / Đơn vị:", department])
+    info.append(["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")])
+
     info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info], colWidths=[80*mm, 160*mm])
     info_tbl.setStyle(_kv_tbl_style())
     story.append(info_tbl)
+
+    if custom_note:
+        story.append(P(f"📝 Ghi chú: {custom_note}", "body"))
 
     def section_table(title, headers, rows, col_widths=None):
         story.append(Spacer(1, 8*mm))
@@ -318,6 +331,36 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
     sum_tbl.setStyle(_summary_tbl_style())
     story.append(sum_tbl)
 
+    # Diagrams
+    if include_diagrams:
+        diagrams = db.query(models.CustomerDiagram).filter(
+            models.CustomerDiagram.customer_id == customer_id
+        ).order_by(models.CustomerDiagram.uploaded_at.asc()).all()
+
+        renderable_diagrams = [d for d in diagrams if getattr(d, "content_type", None) != "image/svg+xml"]
+
+        if renderable_diagrams:
+            story.append(PageBreak())
+            story.append(P("  DIAGRAMS / SƠ ĐỒ HẠ TẦNG", "section"))
+
+            max_w = 240 * mm
+            max_h = 160 * mm
+
+            for d in renderable_diagrams:
+                try:
+                    img_data = base64.b64decode(d.data)
+                    reader = ImageReader(io.BytesIO(img_data))
+                    orig_w, orig_h = reader.getSize()
+                    scale = min(max_w / max(orig_w, 1), max_h / max(orig_h, 1), 1.0)
+                    final_w = orig_w * scale
+                    final_h = orig_h * scale
+                    if getattr(d, "label", None):
+                        story.append(P(d.label, "body"))
+                    img = Image(io.BytesIO(img_data), width=final_w, height=final_h)
+                    story.append(img)
+                except Exception:
+                    story.append(P(f"[Image: {d.filename} — không thể hiển thị]", "body"))
+
     footer_cb = functools.partial(_page_footer, customer_name=c.name, report_type="Inventory Report")
     doc.build(story, onFirstPage=footer_cb, onLaterPages=footer_cb)
     buf.seek(0)
@@ -326,7 +369,8 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
 
 # ── Sizing PDF ────────────────────────────────────────────────────────────────
 
-def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
+def build_sizing_pdf(customer_id: int, db: Session, *, report_title=None, prepared_by=None,
+                     department=None, custom_note=None) -> io.BytesIO:
     from reportlab.platypus import SimpleDocTemplate, Table, Paragraph, Spacer, HRFlowable
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
@@ -357,18 +401,27 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
 
     # Cover
     story.append(Spacer(1, 15*mm))
-    story.append(P("INFRASTRUCTURE SIZING REPORT", "title"))
+    title_text = report_title if report_title else "INFRASTRUCTURE SIZING REPORT"
+    story.append(P(title_text, "title"))
     story.append(P("Báo cáo Sizing Hạ tầng CNTT", "subtitle"))
     story.append(HR())
 
     info_rows = [
         ["Khách hàng:", c.name or ""], ["Dự án:", c.project_name or ""],
         ["Presales:", c.presales or ""], ["Ngày khảo sát:", c.survey_date or ""],
-        ["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")],
     ]
+    if prepared_by:
+        info_rows.append(["Người lập báo cáo:", prepared_by])
+    if department:
+        info_rows.append(["Phòng ban / Đơn vị:", department])
+    info_rows.append(["Ngày xuất báo cáo:", datetime.now().strftime("%d/%m/%Y %H:%M")])
+
     info_tbl = Table([[P(r[0], "label"), P(r[1])] for r in info_rows], colWidths=[50*mm, 120*mm])
     info_tbl.setStyle(_kv_tbl_style())
     story.append(info_tbl)
+
+    if custom_note:
+        story.append(P(f"📝 Ghi chú: {custom_note}", "body"))
 
     def section_header(title):
         story.append(Spacer(1, 6*mm))
@@ -492,22 +545,50 @@ def build_sizing_pdf(customer_id: int, db: Session) -> io.BytesIO:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/inventory-pdf")
-def export_inventory_pdf(customer_id: int, db: Session = Depends(get_db)):
+def export_inventory_pdf(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    report_title: Optional[str] = None,
+    prepared_by: Optional[str] = None,
+    department: Optional[str] = None,
+    custom_note: Optional[str] = None,
+    include_diagrams: bool = True,
+):
     c = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
     if not c:
         raise HTTPException(404, "Customer not found")
-    buf = build_inventory_pdf(customer_id, db)
+    buf = build_inventory_pdf(
+        customer_id, db,
+        report_title=report_title,
+        prepared_by=prepared_by,
+        department=department,
+        custom_note=custom_note,
+        include_diagrams=include_diagrams,
+    )
     fname = f"SVT_Inventory_{c.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @router.get("/sizing-pdf")
-def export_sizing_pdf(customer_id: int, db: Session = Depends(get_db)):
+def export_sizing_pdf(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    report_title: Optional[str] = None,
+    prepared_by: Optional[str] = None,
+    department: Optional[str] = None,
+    custom_note: Optional[str] = None,
+):
     c = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
     if not c:
         raise HTTPException(404, "Customer not found")
-    buf = build_sizing_pdf(customer_id, db)
+    buf = build_sizing_pdf(
+        customer_id, db,
+        report_title=report_title,
+        prepared_by=prepared_by,
+        department=department,
+        custom_note=custom_note,
+    )
     fname = f"SVT_Sizing_{c.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})

@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Outlet, NavLink, useParams } from 'react-router-dom'
 import { exportApi } from '../../api'
+import ExportModal from '../../components/ExportModal'
 
 const TABS = [
   { path: 'workload', label: '💻 Workload Survey' },
@@ -17,9 +18,17 @@ const TABS = [
 
 export default function SizingLayout() {
   const { id } = useParams()
+  const [showExportModal, setShowExportModal] = useState(false)
 
   return (
     <div className="space-y-3">
+      {showExportModal && (
+        <ExportModal
+          type="sizing"
+          onExport={params => { exportApi.sizingPdf(id, null, params); setShowExportModal(false) }}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
       <div className="card !p-0 overflow-hidden">
         <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-2 flex items-center justify-between gap-2 flex-wrap">
           <span className="text-sm font-semibold text-emerald-800">📐 Sizing Tool</span>
@@ -30,7 +39,7 @@ export default function SizingLayout() {
             >⬇️ Excel</button>
             <button
               className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors"
-              onClick={() => exportApi.sizingPdf(id)}
+              onClick={() => setShowExportModal(true)}
             >📄 PDF</button>
           </div>
         </div>

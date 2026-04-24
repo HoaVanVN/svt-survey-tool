@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import PasteImportModal from './PasteImportModal'
 import { useDragReorder } from '../hooks/useDragReorder'
 
@@ -108,8 +108,26 @@ function TierListCell({ value, onChange }) {
   )
 }
 
+// ── Sort helpers ──────────────────────────────────────────────────────────────
+function sortValue(item, key) {
+  const v = item[key]
+  if (v === null || v === undefined || v === '') return ''
+  // Try numeric
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''))
+  if (!isNaN(n) && String(v).trim() !== '') return n
+  return String(v).toLowerCase()
+}
+
+function SortIcon({ active, dir }) {
+  if (!active) return <span className="text-[9px] text-white/40 ml-0.5">↕</span>
+  return <span className="text-[9px] text-yellow-300 ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function InventoryTable({ fields, items, onChange, refs = {} }) {
+  const [sortKey, setSortKey] = useState(null)
+  const [sortDir, setSortDir] = useState('asc')
+
   const add = () => {
     const blank = {}
     fields.forEach(f => { blank[f.key] = f.default ?? (f.type === 'tier_list' ? [] : '') })
@@ -138,27 +156,63 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
     return f.options || []
   }
 
-  // Paste import: build field definitions suitable for PasteImportModal
+  // ── Sort state ───────────────────────────────────────────────────────────────
+  const isSorted = sortKey !== null
+
+  const handleHeaderClick = (key, type) => {
+    if (type === 'tier_list') return // tier_list not sortable
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const clearSort = () => { setSortKey(null); setSortDir('asc') }
+
+  // Sorted index mapping: sortedIndices[displayPos] = originalIndex in items[]
+  const sortedIndices = useMemo(() => {
+    const indices = items.map((_, i) => i)
+    if (!sortKey) return indices
+    return [...indices].sort((a, b) => {
+      const va = sortValue(items[a], sortKey)
+      const vb = sortValue(items[b], sortKey)
+      let cmp
+      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb
+      else cmp = String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [items, sortKey, sortDir])
+
+  // ── Paste import ─────────────────────────────────────────────────────────────
   const pasteFields = fields
-    .filter(f => f.type !== 'tier_list') // tier_list can't be pasted as plain text
+    .filter(f => f.type !== 'tier_list')
     .map(f => ({ key: f.key, label: f.label, type: f.type === 'eos' ? 'text' : f.type, pasteAlts: f.pasteAlts || [] }))
 
   const defaultItem = {}
   fields.forEach(f => { defaultItem[f.key] = f.default ?? (f.type === 'tier_list' ? [] : '') })
 
   const handlePasteImport = (rows, mode) => {
-    if (mode === 'replace') {
-      onChange(rows)
-    } else {
-      onChange([...items, ...rows])
-    }
+    if (mode === 'replace') onChange(rows)
+    else onChange([...items, ...rows])
   }
 
   const drag = useDragReorder(items, onChange)
 
   return (
     <div>
-      <div className="flex justify-end mb-2 gap-2">
+      <div className="flex justify-end mb-2 gap-2 flex-wrap">
+        {/* Sort active banner */}
+        {isSorted && (
+          <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 mr-auto">
+            <span>
+              Sắp xếp: <strong>{fields.find(f => f.key === sortKey)?.label ?? sortKey}</strong>{' '}
+              <span className="text-blue-400">({sortDir === 'asc' ? 'A→Z / 0→9' : 'Z→A / 9→0'})</span>
+            </span>
+            <button onClick={clearSort} className="text-blue-400 hover:text-blue-600 font-bold ml-1" title="Xóa sắp xếp">✕</button>
+          </div>
+        )}
         <PasteImportModal
           fields={pasteFields}
           defaultItem={defaultItem}
@@ -173,86 +227,105 @@ export default function InventoryTable({ fields, items, onChange, refs = {} }) {
               <th className="table-hdr w-6" title="Kéo để sắp xếp lại"></th>
               <th className="table-hdr text-center w-8">#</th>
               {fields.map(f => (
-                <th key={f.key} className="table-hdr" style={{ minWidth: f.width || 90 }}>{f.label}</th>
+                <th
+                  key={f.key}
+                  className={`table-hdr ${f.type !== 'tier_list' ? 'cursor-pointer hover:bg-blue-700 select-none' : ''}`}
+                  style={{ minWidth: f.width || 90 }}
+                  onClick={() => handleHeaderClick(f.key, f.type)}
+                  title={f.type !== 'tier_list' ? 'Click để sắp xếp' : ''}
+                >
+                  <span className="flex items-center gap-0.5">
+                    <span className="flex-1">{f.label}</span>
+                    {f.type !== 'tier_list' && (
+                      <SortIcon active={sortKey === f.key} dir={sortDir} />
+                    )}
+                  </span>
+                </th>
               ))}
               <th className="table-hdr w-16 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((item, i) => (
-              <tr
-                key={i}
-                draggable
-                onDragStart={drag.onDragStart(i)}
-                onDragOver={drag.onDragOver(i)}
-                onDrop={drag.onDrop(i)}
-                onDragEnd={drag.onDragEnd}
-                onDragLeave={drag.onDragLeave}
-                className={`transition-colors ${
-                  drag.dragOver === i
-                    ? 'border-t-2 border-blue-400 bg-blue-50'
-                    : 'hover:bg-gray-50'
-                }`}
-              >
-                <td className="table-cell w-6 text-center" {...drag.handleProps}>
-                  <span className="text-gray-300 hover:text-gray-500 text-sm select-none">⠿</span>
-                </td>
-                <td className="table-cell text-center text-gray-400">{i + 1}</td>
-                {fields.map(f => (
-                  <td key={f.key} className="table-cell p-1">
-                    {f.type === 'tier_list' ? (
-                      <TierListCell
-                        value={item[f.key]}
-                        onChange={val => set(i, f.key, val)}
-                      />
-                    ) : f.type === 'select' ? (
-                      <select
-                        className="text-xs border-gray-200 rounded px-1 py-1 border w-full"
-                        value={item[f.key] ?? f.default ?? ''}
-                        onChange={e => set(i, f.key, e.target.value)}
-                      >
-                        <option value="">--</option>
-                        {getOptions(f).map(o => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    ) : f.type === 'number' ? (
-                      <input
-                        type="number"
-                        className="border-gray-200 rounded px-1 py-1 border text-xs"
-                        style={{ width: f.width || 70 }}
-                        value={item[f.key] ?? f.default ?? ''}
-                        onChange={e => set(i, f.key, e.target.value === '' ? '' : Number(e.target.value))}
-                      />
-                    ) : f.type === 'eos' ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          className="border-gray-200 rounded px-1 py-1 border text-xs"
-                          style={{ width: 85 }}
-                          placeholder="MM/YYYY"
-                          value={item[f.key] ?? ''}
-                          onChange={e => set(i, f.key, e.target.value)}
-                        />
-                        <EOSBadge value={item[f.key]} />
-                      </div>
-                    ) : (
-                      <input
-                        className="w-full text-xs border-gray-200 rounded px-1 py-1 border"
-                        style={{ minWidth: f.width || 80 }}
-                        value={item[f.key] ?? ''}
-                        onChange={e => set(i, f.key, e.target.value)}
-                      />
-                    )}
+            {sortedIndices.map((origIdx, displayIdx) => {
+              const item = items[origIdx]
+              return (
+                <tr
+                  key={origIdx}
+                  draggable={!isSorted}
+                  onDragStart={!isSorted ? drag.onDragStart(origIdx) : undefined}
+                  onDragOver={!isSorted ? drag.onDragOver(origIdx) : undefined}
+                  onDrop={!isSorted ? drag.onDrop(origIdx) : undefined}
+                  onDragEnd={!isSorted ? drag.onDragEnd : undefined}
+                  onDragLeave={!isSorted ? drag.onDragLeave : undefined}
+                  className={`transition-colors ${
+                    !isSorted && drag.dragOver === origIdx
+                      ? 'border-t-2 border-blue-400 bg-blue-50'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <td className="table-cell w-6 text-center" {...(!isSorted ? drag.handleProps : {})}>
+                    {isSorted
+                      ? <span className="text-gray-200 text-xs select-none">—</span>
+                      : <span className="text-gray-300 hover:text-gray-500 text-sm select-none">⠿</span>
+                    }
                   </td>
-                ))}
-                <td className="table-cell text-center">
-                  <div className="flex justify-center gap-1.5">
-                    <button onClick={() => clone(i)} className="text-blue-400 hover:text-blue-600" title="Clone">⧉</button>
-                    <button onClick={() => remove(i)} className="text-red-400 hover:text-red-600" title="Xóa">✕</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  <td className="table-cell text-center text-gray-400">{displayIdx + 1}</td>
+                  {fields.map(f => (
+                    <td key={f.key} className="table-cell p-1">
+                      {f.type === 'tier_list' ? (
+                        <TierListCell
+                          value={item[f.key]}
+                          onChange={val => set(origIdx, f.key, val)}
+                        />
+                      ) : f.type === 'select' ? (
+                        <select
+                          className="text-xs border-gray-200 rounded px-1 py-1 border w-full"
+                          value={item[f.key] ?? f.default ?? ''}
+                          onChange={e => set(origIdx, f.key, e.target.value)}
+                        >
+                          <option value="">--</option>
+                          {getOptions(f).map(o => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : f.type === 'number' ? (
+                        <input
+                          type="number"
+                          className="border-gray-200 rounded px-1 py-1 border text-xs"
+                          style={{ width: f.width || 70 }}
+                          value={item[f.key] ?? f.default ?? ''}
+                          onChange={e => set(origIdx, f.key, e.target.value === '' ? '' : Number(e.target.value))}
+                        />
+                      ) : f.type === 'eos' ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            className="border-gray-200 rounded px-1 py-1 border text-xs"
+                            style={{ width: 85 }}
+                            placeholder="MM/YYYY"
+                            value={item[f.key] ?? ''}
+                            onChange={e => set(origIdx, f.key, e.target.value)}
+                          />
+                          <EOSBadge value={item[f.key]} />
+                        </div>
+                      ) : (
+                        <input
+                          className="w-full text-xs border-gray-200 rounded px-1 py-1 border"
+                          style={{ minWidth: f.width || 80 }}
+                          value={item[f.key] ?? ''}
+                          onChange={e => set(origIdx, f.key, e.target.value)}
+                        />
+                      )}
+                    </td>
+                  ))}
+                  <td className="table-cell text-center">
+                    <div className="flex justify-center gap-1.5">
+                      <button onClick={() => clone(origIdx)} className="text-blue-400 hover:text-blue-600" title="Clone">⧉</button>
+                      <button onClick={() => remove(origIdx)} className="text-red-400 hover:text-red-600" title="Xóa">✕</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
         {!items.length && (

@@ -80,15 +80,19 @@ export const exportApi = {
     a.download = `SVT_Survey_${name || cid}.xlsx`
     a.click()
   },
-  inventoryPdf: (cid, name) => {
+  inventoryPdf: (cid, name, params = {}) => {
+    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined))
+    const qs = new URLSearchParams(clean).toString()
     const a = document.createElement('a')
-    a.href = `/api/customers/${cid}/export/inventory-pdf`
+    a.href = `/api/customers/${cid}/export/inventory-pdf${qs ? '?' + qs : ''}`
     a.download = `SVT_Inventory_${name || cid}.pdf`
     a.click()
   },
-  sizingPdf: (cid, name) => {
+  sizingPdf: (cid, name, params = {}) => {
+    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined))
+    const qs = new URLSearchParams(clean).toString()
     const a = document.createElement('a')
-    a.href = `/api/customers/${cid}/export/sizing-pdf`
+    a.href = `/api/customers/${cid}/export/sizing-pdf${qs ? '?' + qs : ''}`
     a.download = `SVT_Sizing_${name || cid}.pdf`
     a.click()
   },
