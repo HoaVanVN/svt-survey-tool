@@ -300,6 +300,189 @@ function StorageTierTable({ tierEntries, tierRawTotal }) {
   )
 }
 
+// ── Category badge color palette ─────────────────────────────────────────────
+const CAT_COLORS = {
+  'Physical Servers':   'bg-blue-100 text-blue-700',
+  'SAN Switches':       'bg-purple-100 text-purple-700',
+  'Storage Systems':    'bg-amber-100 text-amber-700',
+  'Network Devices':    'bg-cyan-100 text-cyan-700',
+  'WiFi Access Points': 'bg-green-100 text-green-700',
+  'Applications':       'bg-orange-100 text-orange-700',
+}
+
+function CatBadges({ cats }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {Object.entries(cats).map(([label, count]) => {
+        const cls = CAT_COLORS[label] || 'bg-gray-100 text-gray-600'
+        const icon = Object.values(SECTION_LABELS).find(v => v.label === label)?.icon || ''
+        return (
+          <span key={label} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${cls}`} title={label}>
+            {icon} {count}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Aggregation helpers ───────────────────────────────────────────────────────
+function useAggregation(summary, fieldFn) {
+  return useMemo(() => {
+    const map = {}
+    Object.entries(SECTION_LABELS).forEach(([catKey, { label }]) => {
+      ;(summary?.[catKey] || []).forEach(item => {
+        const key = (fieldFn(item) || '').trim() || 'Chưa xác định'
+        const qty = parseInt(item.qty) || 1
+        if (!map[key]) map[key] = { total: 0, cats: {} }
+        map[key].total += qty
+        map[key].cats[label] = (map[key].cats[label] || 0) + qty
+      })
+    })
+    return Object.entries(map)
+      .map(([key, { total, cats }]) => ({ key, total, cats }))
+      .sort((a, b) => b.total - a.total)
+  }, [summary])
+}
+
+// ── Vendor dashboard ──────────────────────────────────────────────────────────
+function VendorDashboard({ summary }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+  const data = useAggregation(summary, item => item.vendor)
+  const grandTotal = data.reduce((s, r) => s + r.total, 0)
+  const maxTotal   = Math.max(...data.map(r => r.total), 1)
+
+  const getVal = (row, key) => {
+    if (key === 'pct') return row.total / Math.max(grandTotal, 1) * 100
+    return row[key] ?? ''
+  }
+  const sorted = useMemo(() => sort(data, getVal), [data, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  if (!data.length) return null
+
+  return (
+    <div className="card">
+      <h4 className="font-medium text-gray-700 mb-0.5">💼 Vendor Distribution</h4>
+      <p className="text-xs text-gray-400 mb-3">
+        {grandTotal.toLocaleString()} thiết bị &nbsp;·&nbsp; {data.length} vendor{data.length !== 1 ? 's' : ''}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr>
+              <th className="table-hdr text-center w-7">#</th>
+              {th('Vendor', 'key')}
+              {th('SL', 'total', 'text-center')}
+              {th('% Share', 'pct', 'text-center')}
+              <th className="table-hdr" style={{ minWidth: 110 }}>Biểu đồ</th>
+              <th className="table-hdr">Hạng mục</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row, i) => {
+              const pct    = grandTotal > 0 ? Math.round(row.total / grandTotal * 100) : 0
+              const barPct = Math.round(row.total / maxTotal * 100)
+              return (
+                <tr key={row.key} className="hover:bg-gray-50">
+                  <td className="table-cell text-center text-gray-400">{i + 1}</td>
+                  <td className="table-cell font-medium">{row.key}</td>
+                  <td className="table-cell text-center font-bold text-blue-700">{row.total}</td>
+                  <td className="table-cell text-center text-gray-500">{pct}%</td>
+                  <td className="table-cell">
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex-1 bg-gray-100 rounded-full h-2">
+                        <div className="bg-blue-400 h-2 rounded-full" style={{ width: `${barPct}%` }} />
+                      </div>
+                      <span className="text-[10px] text-gray-400 w-7 text-right">{pct}%</span>
+                    </div>
+                  </td>
+                  <td className="table-cell"><CatBadges cats={row.cats} /></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Location dashboard ────────────────────────────────────────────────────────
+function LocationDashboard({ summary }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+  // location for hardware, environment for applications
+  const data = useAggregation(summary, item => item.location || item.environment)
+  const grandTotal = data.reduce((s, r) => s + r.total, 0)
+  const maxTotal   = Math.max(...data.map(r => r.total), 1)
+
+  const getVal = (row, key) => {
+    if (key === 'pct') return row.total / Math.max(grandTotal, 1) * 100
+    return row[key] ?? ''
+  }
+  const sorted = useMemo(() => sort(data, getVal), [data, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  if (!data.length) return null
+
+  // choose bar colour: green for named locations, gray for "Chưa xác định"
+  const barColor = (key) => key === 'Chưa xác định' ? 'bg-gray-300' : 'bg-emerald-400'
+
+  return (
+    <div className="card">
+      <h4 className="font-medium text-gray-700 mb-0.5">📍 Location Distribution</h4>
+      <p className="text-xs text-gray-400 mb-3">
+        {grandTotal.toLocaleString()} thiết bị &nbsp;·&nbsp; {data.length} vị trí
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr>
+              <th className="table-hdr text-center w-7">#</th>
+              {th('Vị trí / Môi trường', 'key')}
+              {th('SL', 'total', 'text-center')}
+              {th('% Share', 'pct', 'text-center')}
+              <th className="table-hdr" style={{ minWidth: 110 }}>Biểu đồ</th>
+              <th className="table-hdr">Hạng mục</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row, i) => {
+              const pct    = grandTotal > 0 ? Math.round(row.total / grandTotal * 100) : 0
+              const barPct = Math.round(row.total / maxTotal * 100)
+              return (
+                <tr key={row.key} className="hover:bg-gray-50">
+                  <td className="table-cell text-center text-gray-400">{i + 1}</td>
+                  <td className={`table-cell font-medium ${row.key === 'Chưa xác định' ? 'text-gray-400 italic' : ''}`}>
+                    {row.key}
+                  </td>
+                  <td className="table-cell text-center font-bold text-emerald-700">{row.total}</td>
+                  <td className="table-cell text-center text-gray-500">{pct}%</td>
+                  <td className="table-cell">
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex-1 bg-gray-100 rounded-full h-2">
+                        <div className={`${barColor(row.key)} h-2 rounded-full`} style={{ width: `${barPct}%` }} />
+                      </div>
+                      <span className="text-[10px] text-gray-400 w-7 text-right">{pct}%</span>
+                    </div>
+                  </td>
+                  <td className="table-cell"><CatBadges cats={row.cats} /></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── VM OS distribution table ──────────────────────────────────────────────────
 function VMOSTable({ osDist, totalVMs, poweredOn, totalDisk }) {
   const { sortKey, sortDir, toggle, sort } = useSortTable()
@@ -465,6 +648,14 @@ export default function InventoryReport() {
           </button>
         </div>
       </div>
+
+      {/* Vendor & Location dashboards */}
+      {summary && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <VendorDashboard summary={summary} />
+          <LocationDashboard summary={summary} />
+        </div>
+      )}
 
       {/* Storage capacity summary */}
       {summary && (summary.storage_systems || []).length > 0 && (() => {
