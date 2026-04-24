@@ -214,6 +214,33 @@ function buildSummary(merged) {
   }
 }
 
+// ── ESXi host → Physical Server mapper ───────────────────────────────────────
+function mapVHostToServers(vhosts) {
+  return vhosts
+    .filter(r => String(r['Host'] || '').trim())
+    .map((row, i) => ({
+      id:           Date.now() + i,
+      name:         String(row['Host']      || '').trim(),
+      model:        String(row['Model']     || '').trim(),
+      vendor:       String(row['Vendor']    || '').trim(),
+      serial:       '',
+      qty:          1,
+      location:     String(row['Datacenter'] || '').trim(),
+      server_type:  'Rack Server',
+      hypervisor:   cleanEsxVersion(row['ESX Version'] || ''),
+      cpu:          String(row['CPU Model'] || '').trim(),
+      cpu_sockets:  Number(row['# CPU']        || 0),
+      cores_per_cpu: Number(row['Cores per CPU'] || 0),
+      ram_gb:       Math.round(Number(row['# Memory'] || 0) / 1024),
+      os:           '',
+      support_until: '',
+      status:       'Using',
+      notes:        cleanEsxVersion(row['ESX Version'] || '')
+                      ? `ESXi: ${cleanEsxVersion(row['ESX Version'] || '')}`
+                      : '',
+    }))
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function VMInventory() {
@@ -223,6 +250,7 @@ export default function VMInventory() {
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [rvtoolsInfo, setRvtoolsInfo] = useState(null)  // full raw rvtools record
   const replaceRef = useRef(null)
   const mergeRef   = useRef(null)
@@ -269,6 +297,28 @@ export default function VMInventory() {
       toast.error('Lỗi khi xóa')
     } finally {
       setClearing(false)
+    }
+  }
+
+  const doSyncToServers = async () => {
+    const vhosts = rvtoolsInfo?.vhost || []
+    if (vhosts.length === 0) {
+      toast.error('Không có dữ liệu ESXi host trong RVTools')
+      return
+    }
+    const mapped = mapVHostToServers(vhosts)
+    if (!window.confirm(
+      `Sync ${mapped.length} ESXi host(s) → Physical Servers?\n` +
+      `Dữ liệu Physical Servers hiện tại sẽ bị THAY THẾ hoàn toàn.`
+    )) return
+    setSyncing(true)
+    try {
+      await inventoryApi.saveCategory(id, 'servers', mapped)
+      toast.success(`✅ Đã sync ${mapped.length} ESXi host → Physical Servers`)
+    } catch {
+      toast.error('Lỗi khi sync Physical Servers')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -477,6 +527,14 @@ export default function VMInventory() {
                 title="Xóa toàn bộ và import lại từ đầu"
               >
                 🔄 Thay thế
+              </button>
+              <button
+                className="btn-secondary text-xs border-green-300 text-green-700 hover:bg-green-50"
+                onClick={doSyncToServers}
+                disabled={importing || syncing}
+                title="Sync ESXi hosts từ RVTools → Physical Servers inventory"
+              >
+                {syncing ? '⏳...' : '🖥️ Sync → Servers'}
               </button>
             </>
           ) : (

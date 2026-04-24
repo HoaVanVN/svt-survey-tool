@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { rvtools as rvtoolsApi } from '../../api'
+import toast from 'react-hot-toast'
+import { rvtools as rvtoolsApi, inventory as inventoryApi } from '../../api'
 
 function mibToGib(v) {
   const n = Number(v)
@@ -123,22 +124,25 @@ function DataTable({ rows, columns, maxRows = 500 }) {
   )
 }
 
-function Section({ title, count, children, defaultOpen = true }) {
+function Section({ title, count, children, defaultOpen = true, headerAction }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="card">
-      <button
-        className="w-full flex items-center justify-between text-left"
-        onClick={() => setOpen(o => !o)}
-      >
-        <h3 className="font-semibold text-gray-800">
-          {title}
-          {count != null && (
-            <span className="ml-2 text-sm text-gray-400 font-normal">({count.toLocaleString()} records)</span>
-          )}
-        </h3>
-        <span className="text-gray-400">{open ? '▾' : '▸'}</span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          className="flex-1 flex items-center justify-between text-left"
+          onClick={() => setOpen(o => !o)}
+        >
+          <h3 className="font-semibold text-gray-800">
+            {title}
+            {count != null && (
+              <span className="ml-2 text-sm text-gray-400 font-normal">({count.toLocaleString()} records)</span>
+            )}
+          </h3>
+          <span className="text-gray-400 ml-2">{open ? '▾' : '▸'}</span>
+        </button>
+        {headerAction && <div className="flex-shrink-0">{headerAction}</div>}
+      </div>
       {open && <div className="mt-3">{children}</div>}
     </div>
   )
@@ -254,10 +258,58 @@ function filterRows(rows, key) {
   return rows.filter(r => r[key] !== '' && r[key] !== undefined && r[key] !== null)
 }
 
+// ── ESXi sync helpers ─────────────────────────────────────────────────────────
+function cleanEsxVersion(v) {
+  return (v || '').replace(/\s+build-\S+/i, '').trim()
+}
+
+function mapVHostToServers(vhosts) {
+  return vhosts
+    .filter(r => String(r['Host'] || '').trim())
+    .map((row, i) => ({
+      id:            Date.now() + i,
+      name:          String(row['Host']         || '').trim(),
+      model:         String(row['Model']        || '').trim(),
+      vendor:        String(row['Vendor']       || '').trim(),
+      serial:        '',
+      qty:           1,
+      location:      String(row['Datacenter']   || '').trim(),
+      server_type:   'Rack Server',
+      hypervisor:    cleanEsxVersion(row['ESX Version'] || ''),
+      cpu:           String(row['CPU Model']    || '').trim(),
+      cpu_sockets:   Number(row['# CPU']        || 0),
+      cores_per_cpu: Number(row['Cores per CPU'] || 0),
+      ram_gb:        Math.round(Number(row['# Memory'] || 0) / 1024),
+      os:            '',
+      support_until: '',
+      status:        'Using',
+      notes:         cleanEsxVersion(row['ESX Version'] || '')
+                       ? `ESXi: ${cleanEsxVersion(row['ESX Version'] || '')}` : '',
+    }))
+}
+
+// ── Over-commit ratio chip ────────────────────────────────────────────────────
+function RatioChip({ ratio, type }) {
+  if (ratio === null || ratio === undefined) return <span className="text-gray-400">—</span>
+  const warn = type === 'cpu' ? 4 : 1.25
+  const crit = type === 'cpu' ? 8 : 1.5
+  const cls  = ratio >= crit
+    ? 'bg-red-100 text-red-700'
+    : ratio >= warn
+      ? 'bg-orange-100 text-orange-700'
+      : 'bg-green-100 text-green-700'
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded font-semibold text-xs ${cls}`}>
+      {ratio.toFixed(2)}:1
+    </span>
+  )
+}
+
 export default function RVToolsReport() {
   const { id } = useParams()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     rvtoolsApi.get(id)
@@ -315,6 +367,42 @@ export default function RVToolsReport() {
   const totalDsCapGib = vdatastore.reduce((acc, r) => acc + Number(r['Capacity MiB'] || 0) / 1024, 0)
   const totalDsFreeGib = vdatastore.reduce((acc, r) => acc + Number(r['Free MiB'] || 0) / 1024, 0)
   const totalSnapshotGib = vsnapshot.reduce((acc, r) => acc + Number(r['Size MiB'] || 0) / 1024, 0)
+
+  // ── Over-commit analysis ───────────────────────────────────────────────────
+  const liveHosts  = filterRows(vhost, 'Host')
+  const physCores  = liveHosts.reduce((s, r) => s + (Number(r['# Cores'])  || 0), 0)
+  const physRamGib = Math.round(liveHosts.reduce((s, r) => s + (Number(r['# Memory']) || 0), 0) / 1024)
+  // powered-on only (for active ratio)
+  const activeVMs     = liveVMs.filter(r => (r['Powerstate'] || '').toLowerCase() === 'poweredon')
+  const activeVcpu    = activeVMs.reduce((s, r) => s + (Number(r['CPUs'])   || 0), 0)
+  const activeRamGib  = Math.round(activeVMs.reduce((s, r) => s + (Number(r['Memory']) || 0), 0) / 1024)
+  // ratios (null when no physical data)
+  const cpuRatioProv   = physCores  > 0 ? liveTotalVcpu   / physCores  : null
+  const cpuRatioActive = physCores  > 0 ? activeVcpu      / physCores  : null
+  const ramRatioProv   = physRamGib > 0 ? liveTotalRamGib / physRamGib : null
+  const ramRatioActive = physRamGib > 0 ? activeRamGib    / physRamGib : null
+
+  // ── ESXi → Physical Servers sync ──────────────────────────────────────────
+  const doSyncToServers = async () => {
+    if (liveHosts.length === 0) {
+      toast.error('Không có dữ liệu ESXi host trong RVTools')
+      return
+    }
+    const mapped = mapVHostToServers(liveHosts)
+    if (!window.confirm(
+      `Sync ${mapped.length} ESXi host(s) → Physical Servers?\n` +
+      `Dữ liệu Physical Servers hiện tại sẽ bị THAY THẾ hoàn toàn.`
+    )) return
+    setSyncing(true)
+    try {
+      await inventoryApi.saveCategory(id, 'servers', mapped)
+      toast.success(`✅ Đã sync ${mapped.length} ESXi host → Physical Servers`)
+    } catch {
+      toast.error('Lỗi khi sync Physical Servers')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -374,13 +462,90 @@ export default function RVToolsReport() {
         </div>
       )}
 
+      {/* Over-commit Analysis */}
+      {physCores > 0 && (
+        <Section title="📊 CPU & RAM Over-commit Analysis" defaultOpen={true}>
+          <div className="space-y-4">
+            {/* Physical baseline */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <div className="text-xs font-semibold text-gray-500 mb-1">🖥️ Physical CPU (Total Cores)</div>
+                <div className="text-2xl font-bold text-gray-800">{physCores.toLocaleString()}</div>
+                <div className="text-xs text-gray-400">{liveHosts.length} ESXi host(s)</div>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <div className="text-xs font-semibold text-gray-500 mb-1">💾 Physical RAM</div>
+                <div className="text-2xl font-bold text-gray-800">{physRamGib.toLocaleString()} GiB</div>
+                <div className="text-xs text-gray-400">{liveHosts.length} ESXi host(s)</div>
+              </div>
+            </div>
+
+            {/* Comparison table */}
+            <div className="overflow-x-auto rounded border border-gray-200">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Metric</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Physical</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Provisioned (All VMs)</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Ratio</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Active (Powered On)</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Ratio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-gray-100">
+                    <td className="px-3 py-2 font-medium text-gray-700">⚡ vCPU / Cores</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{physCores.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{liveTotalVcpu.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right"><RatioChip ratio={cpuRatioProv} type="cpu" /></td>
+                    <td className="px-3 py-2 text-right text-gray-700">{activeVcpu.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right"><RatioChip ratio={cpuRatioActive} type="cpu" /></td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2 font-medium text-gray-700">💾 RAM (GiB)</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{physRamGib.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{liveTotalRamGib.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right"><RatioChip ratio={ramRatioProv} type="ram" /></td>
+                    <td className="px-3 py-2 text-right text-gray-700">{activeRamGib.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right"><RatioChip ratio={ramRatioActive} type="ram" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap gap-4 text-xs text-gray-500 border-t border-gray-100 pt-2">
+              <span className="text-green-600 font-medium">● Normal</span>
+              <span className="text-orange-600 font-medium">● Warning — CPU ≥ 4:1 · RAM ≥ 1.25:1</span>
+              <span className="text-red-600 font-medium">● Critical — CPU ≥ 8:1 · RAM ≥ 1.5:1</span>
+            </div>
+          </div>
+        </Section>
+      )}
+
       {/* vInfo – VM List */}
       <Section title="🖥️ Virtual Machines" count={filterRows(vinfo, 'VM').length}>
         <DataTable rows={filterRows(vinfo, 'VM')} columns={VINFO_COLS} maxRows={1000} />
       </Section>
 
       {/* vHost */}
-      <Section title="🗄️ ESXi Hosts" count={filterRows(vhost, 'Host').length}>
+      <Section
+        title="🗄️ ESXi Hosts"
+        count={filterRows(vhost, 'Host').length}
+        headerAction={
+          liveHosts.length > 0 ? (
+            <button
+              className="btn-secondary text-xs border-green-300 text-green-700 hover:bg-green-50"
+              onClick={doSyncToServers}
+              disabled={syncing}
+              title="Sync ESXi hosts → Physical Servers inventory"
+            >
+              {syncing ? '⏳...' : '🖥️ Sync → Physical Servers'}
+            </button>
+          ) : null
+        }
+      >
         <DataTable rows={filterRows(vhost, 'Host')} columns={VHOST_COLS} />
       </Section>
 
