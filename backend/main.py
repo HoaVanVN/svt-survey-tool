@@ -39,7 +39,7 @@ def _run_migrations():
 
 _run_migrations()
 
-app = FastAPI(title="SVT Survey Tool", version="2.3")
+app = FastAPI(title="SVT Survey Tool", version="2.3.0.1")
 
 # Trust X-Forwarded-For / X-Forwarded-Proto headers from Nginx Proxy Manager
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
@@ -66,7 +66,7 @@ app.include_router(diagrams_router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.3"}
+    return {"status": "ok", "version": "2.3.0.1"}
 
 @app.get("/api/security-questions")
 def get_questions():

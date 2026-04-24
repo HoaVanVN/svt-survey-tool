@@ -125,6 +125,191 @@ def _page_footer(canvas, doc, customer_name, report_type):
     canvas.restoreState()
 
 
+# ── Chart drawing helpers ─────────────────────────────────────────────────────
+
+def _parse_eos_date(val):
+    """Parse EOS/expiry date string → datetime or None."""
+    if not val:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(str(val).strip()[:10], fmt)
+        except Exception:
+            pass
+    return None
+
+
+def _drawing_hbar(rows, w_mm, h_mm, title="", bar_color="#0070C0"):
+    """Horizontal bar chart. rows=[(label, value), ...]. Returns Drawing or None."""
+    try:
+        from reportlab.graphics.shapes import Drawing, Rect, String, Line
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+
+        rows = [(str(l)[:24], int(v)) for l, v in rows if int(v) > 0]
+        if not rows:
+            return None
+
+        w, h = w_mm * mm, h_mm * mm
+        d = Drawing(w, h)
+        max_val = max(v for _, v in rows) or 1
+        title_h = 14 if title else 0
+        pad_b, pad_r = 6, 10
+        label_w = 82
+        axis_x = label_w + 4
+        axis_w = w - axis_x - pad_r
+        chart_top = h - title_h - 4
+        n = len(rows)
+        row_h = (chart_top - pad_b) / n
+        bar_h = max(6, row_h * 0.65)
+
+        if title:
+            d.add(String(w / 2, h - 10, title, fontSize=8, fontName='Helvetica-Bold',
+                         textAnchor='middle', fillColor=colors.HexColor("#003366")))
+        d.add(Line(axis_x, pad_b, axis_x, chart_top,
+                   strokeColor=colors.HexColor("#CCCCCC"), strokeWidth=0.5))
+
+        for i, (label, val) in enumerate(rows):
+            y = chart_top - (i + 1) * row_h + (row_h - bar_h) / 2
+            bw = (val / max_val) * axis_w
+            d.add(String(axis_x - 3, y + bar_h * 0.28, label,
+                         fontSize=6.5, fontName='Helvetica', textAnchor='end',
+                         fillColor=colors.HexColor("#444444")))
+            if bw > 0:
+                d.add(Rect(axis_x, y, bw, bar_h,
+                           fillColor=colors.HexColor(bar_color), strokeColor=None))
+            d.add(String(axis_x + bw + 2, y + bar_h * 0.28, str(val),
+                         fontSize=6, fontName='Helvetica',
+                         fillColor=colors.HexColor("#333333")))
+        return d
+    except Exception:
+        return None
+
+
+def _drawing_pie(slices, w_mm, h_mm, title=""):
+    """Pie chart with legend. slices=[(label, value, '#RRGGBB'), ...]. Returns Drawing or None."""
+    try:
+        from reportlab.graphics.shapes import Drawing, String, Rect
+        from reportlab.graphics.charts.piecharts import Pie
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+
+        active = [(str(l), int(v), c) for l, v, c in slices if int(v) > 0]
+        if not active:
+            return None
+
+        w, h = w_mm * mm, h_mm * mm
+        d = Drawing(w, h)
+        total = sum(v for _, v, _ in active)
+
+        title_h = 14 if title else 0
+        legend_row_h = 11
+        legend_h = len(active) * legend_row_h + 4
+        pie_area_h = h - title_h - legend_h - 8
+        radius = min(w * 0.36, pie_area_h * 0.44)
+        cx = w / 2
+        cy = h - title_h - radius - 4
+
+        if title:
+            d.add(String(w / 2, h - 10, title, fontSize=8, fontName='Helvetica-Bold',
+                         textAnchor='middle', fillColor=colors.HexColor("#003366")))
+
+        pie = Pie()
+        pie.x = cx - radius
+        pie.y = cy - radius
+        pie.width = pie.height = radius * 2
+        pie.data = [v for _, v, _ in active]
+        pie.labels = [''] * len(active)
+        pie.sideLabels = 0
+        pie.slices.strokeColor = colors.white
+        pie.slices.strokeWidth = 1
+        for i, (_, _, chex) in enumerate(active):
+            pie.slices[i].fillColor = colors.HexColor(chex)
+        d.add(pie)
+
+        for i, (label, val, chex) in enumerate(active):
+            ly = legend_h - (i + 1) * legend_row_h
+            d.add(Rect(4, ly, 8, 7, fillColor=colors.HexColor(chex), strokeColor=None))
+            pct = val * 100 // total if total else 0
+            d.add(String(15, ly + 1, f"{label}: {val} ({pct}%)",
+                         fontSize=6.5, fontName='Helvetica',
+                         fillColor=colors.HexColor("#333333")))
+        return d
+    except Exception:
+        return None
+
+
+def _drawing_grouped_bar(labels, series_data, w_mm, h_mm,
+                          series_colors, series_labels, title=""):
+    """Vertical grouped bar chart.
+    labels: x-axis group names; series_data: list of value-lists (one per series).
+    Returns Drawing or None.
+    """
+    try:
+        from reportlab.graphics.shapes import Drawing, Rect, String, Line
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+
+        n_g = len(labels)
+        n_s = len(series_data)
+        if not n_g or not n_s:
+            return None
+        all_vals = [v for s in series_data for v in s]
+        if not all_vals or max(all_vals) == 0:
+            return None
+
+        w, h = w_mm * mm, h_mm * mm
+        max_val = max(all_vals) or 1
+        d = Drawing(w, h)
+
+        title_h = 14 if title else 0
+        legend_h = 14
+        pad_l, pad_b, pad_r = 8, 22, 8
+        chart_l = pad_l
+        chart_b = pad_b + legend_h
+        chart_w = w - chart_l - pad_r
+        chart_h = h - title_h - chart_b - 8
+        group_w = chart_w / n_g
+        bar_w = group_w / (n_s + 0.5)
+
+        if title:
+            d.add(String(w / 2, h - 10, title, fontSize=8, fontName='Helvetica-Bold',
+                         textAnchor='middle', fillColor=colors.HexColor("#003366")))
+        d.add(Line(chart_l, chart_b, chart_l, chart_b + chart_h,
+                   strokeColor=colors.HexColor("#AAAAAA"), strokeWidth=0.5))
+        d.add(Line(chart_l, chart_b, chart_l + chart_w, chart_b,
+                   strokeColor=colors.HexColor("#AAAAAA"), strokeWidth=0.5))
+
+        for g, grp_label in enumerate(labels):
+            gx = chart_l + g * group_w + group_w * 0.05
+            d.add(String(chart_l + g * group_w + group_w / 2, chart_b - 12,
+                         str(grp_label)[:18],
+                         fontSize=6.5, fontName='Helvetica', textAnchor='middle',
+                         fillColor=colors.HexColor("#333333")))
+            for s, (sdata, shex) in enumerate(zip(series_data, series_colors)):
+                val = sdata[g] if g < len(sdata) else 0
+                bx = gx + s * bar_w
+                bh = (val / max_val) * chart_h
+                if bh > 0:
+                    d.add(Rect(bx, chart_b, bar_w * 0.9, bh,
+                               fillColor=colors.HexColor(shex), strokeColor=None))
+                if val > 0:
+                    lbl = f"{val:.1f}" if isinstance(val, float) and val != int(val) else str(int(val))
+                    d.add(String(bx + bar_w * 0.45, chart_b + bh + 1, lbl,
+                                 fontSize=5.5, fontName='Helvetica', textAnchor='middle',
+                                 fillColor=colors.HexColor("#333333")))
+
+        for i, (slbl, shex) in enumerate(zip(series_labels, series_colors)):
+            lx = chart_l + i * (chart_w / max(n_s, 1))
+            d.add(Rect(lx, 3, 8, 7, fillColor=colors.HexColor(shex), strokeColor=None))
+            d.add(String(lx + 11, 4, slbl, fontSize=6.5, fontName='Helvetica',
+                         fillColor=colors.HexColor("#333333")))
+
+        return d
+    except Exception:
+        return None
+
+
 # ── Inventory PDF ─────────────────────────────────────────────────────────────
 
 def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, prepared_by=None,
@@ -197,6 +382,106 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
         tbl.setStyle(_tbl_style())
         story.append(tbl)
 
+    # ── Visual Summary (charts) ───────────────────────────────────────────────
+    try:
+        from collections import Counter as _Ctr
+        from reportlab.platypus import TableStyle as _TS
+
+        _srv  = (inv.servers or []) if inv else []
+        _san  = (inv.san_switches or []) if inv else []
+        _st   = (inv.storage_systems or []) if inv else []
+        _net  = (inv.network_devices or []) if inv else []
+        _wf   = (inv.wifi_aps or []) if inv else []
+        _tp   = (inv.tape_libraries or []) if inv else []
+        _vm   = (inv.virtual_machines or []) if inv else []
+        _sr   = (inv.server_rooms or []) if inv else []
+        _wl   = (inv.wan_links or []) if inv else []
+        _ap   = (app_inv.applications or []) if app_inv else []
+
+        # Category count chart
+        _cat = [(l, c) for l, c in [
+            ('Servers', len(_srv)), ('SAN Switches', len(_san)),
+            ('Storage', len(_st)), ('Network', len(_net)),
+            ('WiFi APs', len(_wf)), ('Tape Libs', len(_tp)),
+            ('VMs', len(_vm)), ('Server Rooms', len(_sr)),
+            ('WAN Links', len(_wl)), ('Apps', len(_ap)),
+        ] if c > 0]
+
+        # EOS status counts
+        _today = datetime.now()
+        _exp = _near = _ok = 0
+        for _il in [_srv, _san, _st, _net, _wf, _tp, _wl]:
+            for _it in _il:
+                _ev = (_it.get('support_until') or _it.get('end_of_support') or
+                       _it.get('support_expiry') or _it.get('contract_expiry'))
+                _ed = _parse_eos_date(_ev)
+                _qty = int(_it.get('qty') or 1)
+                if _ed:
+                    if _ed < _today:
+                        _exp += _qty
+                    elif (_ed - _today).days <= 365:
+                        _near += _qty
+                    else:
+                        _ok += _qty
+                else:
+                    _ok += _qty
+
+        # Vendor distribution (top 10)
+        _vc = _Ctr()
+        for _il in [_srv, _san, _st, _net, _wf, _tp]:
+            for _it in _il:
+                _vc[(_it.get('vendor') or 'N/A').strip() or 'N/A'] += int(_it.get('qty') or 1)
+        for _it in _wl:
+            _vc[(_it.get('isp') or 'N/A').strip() or 'N/A'] += 1
+        _vnd_rows = _vc.most_common(10)
+
+        # Location distribution (top 10)
+        _lc = _Ctr()
+        for _il in [_srv, _san, _st, _net, _wf, _tp]:
+            for _it in _il:
+                _lc[(_it.get('location') or 'N/A').strip() or 'N/A'] += int(_it.get('qty') or 1)
+        for _it in _sr:
+            _lc[(_it.get('location') or _it.get('name') or 'N/A').strip() or 'N/A'] += int(_it.get('rack_count') or 1)
+        for _it in _wl:
+            _lc[(_it.get('site_name') or 'N/A').strip() or 'N/A'] += 1
+        _loc_rows = _lc.most_common(10)
+
+        story.append(Spacer(1, 5*mm))
+        story.append(P("  TÓM TẮT TRỰC QUAN / VISUAL SUMMARY", "section"))
+
+        # Row 1: category count bar (158mm) + EOS status pie (100mm)
+        _d1 = _drawing_hbar(_cat, 158, 80, "Device Count by Category", "#0070C0")
+        _d2 = _drawing_pie([
+            ("Active / OK",    _ok,   "#70AD47"),
+            ("Near EOS ≤1yr",  _near, "#FFC000"),
+            ("EOS Expired",    _exp,  "#C00000"),
+        ], 100, 80, "Support Status")
+        if _d1 or _d2:
+            _r1 = Table([[_d1 or Spacer(1, 1), _d2 or Spacer(1, 1)]],
+                        colWidths=[158*mm, 100*mm])
+            _r1.setStyle(_TS([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                               ("TOPPADDING", (0, 0), (-1, -1), 4),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+            story.append(_r1)
+
+        # Row 2: vendor bar (130mm) + location bar (128mm)
+        _d3 = _drawing_hbar(_vnd_rows, 130, 85, "Top Vendors", "#2E75B6")
+        _d4 = _drawing_hbar(_loc_rows, 128, 85, "Top Locations", "#548235")
+        if _d3 or _d4:
+            _r2 = Table([[_d3 or Spacer(1, 1), _d4 or Spacer(1, 1)]],
+                        colWidths=[130*mm, 128*mm])
+            _r2.setStyle(_TS([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                               ("TOPPADDING", (0, 0), (-1, -1), 4),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+            story.append(_r2)
+
+    except Exception:
+        pass  # charts are best-effort; never break the PDF
+
     # Servers
     servers = (inv.servers or []) if inv else []
     section_table(
@@ -251,6 +536,27 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
           s.get("qty",1), s.get("storage_type",""), _stor_raw(s), _stor_usable(s),
           s.get("status",""), _stor_tiers(s)] for i, s in enumerate(stors)],
     )
+
+    # Storage capacity chart (Raw vs Usable per system)
+    try:
+        _stor_chart_data = [
+            (s.get('name','') or s.get('model',''), _stor_raw(s), _stor_usable(s))
+            for s in stors if _stor_raw(s) or _stor_usable(s)
+        ]
+        if _stor_chart_data:
+            _snames = [str(n)[:18] for n, _, _ in _stor_chart_data]
+            _raws   = [float(r) if r else 0 for _, r, _ in _stor_chart_data]
+            _usables = [float(u) if u else 0 for _, _, u in _stor_chart_data]
+            _sc = _drawing_grouped_bar(
+                _snames, [_raws, _usables], 200, 65,
+                ["#2E75B6", "#70AD47"], ["Raw (TB)", "Usable (TB)"],
+                "Storage Capacity: Raw vs Usable (TB)"
+            )
+            if _sc:
+                story.append(Spacer(1, 2*mm))
+                story.append(_sc)
+    except Exception:
+        pass
 
     # Network Devices
     nets = (inv.network_devices or []) if inv else []
@@ -500,6 +806,25 @@ def build_sizing_pdf(customer_id: int, db: Session, *, report_title=None, prepar
              f"{ws.growth_years} năm @ {ws.growth_rate}%/năm"],
         ])
 
+        # Compute sizing chart: vCPU and RAM (required vs capacity)
+        try:
+            _cc = _drawing_grouped_bar(
+                ["vCPU (cores)", "RAM (GB)"],
+                [
+                    [int(comp['total_vcpu']),    int(comp['total_ram_gb'])],
+                    [int(comp['pcpu_with_ha']),  int(comp['ram_with_ha_gb'])],
+                ],
+                175, 65,
+                ["#C00000", "#0070C0"],
+                ["Required", "Server Capacity (with HA)"],
+                "Compute: Required vs Capacity"
+            )
+            if _cc:
+                story.append(Spacer(1, 2*mm))
+                story.append(_cc)
+        except Exception:
+            pass
+
         section_header("III. SIZING PRIMARY STORAGE")
         kv_table([
             ["Tổng Disk OS", f"{stor['total_os_gb']} GB"],
@@ -510,6 +835,19 @@ def build_sizing_pdf(customer_id: int, db: Session, *, report_title=None, prepar
             ["⭐ Raw cần thiết (RAID 5)", f"{stor['raw_raid5_tb']} TB", "75% efficiency"],
             ["⭐ Raw cần thiết (RAID 6)", f"{stor['raw_raid6_tb']} TB", "66% efficiency"],
         ])
+
+        # Storage sizing chart
+        try:
+            _sc = _drawing_hbar([
+                ("Usable (after dedup)", float(stor['usable_tb'])),
+                ("Raw – RAID 5",         float(stor['raw_raid5_tb'])),
+                ("Raw – RAID 6",         float(stor['raw_raid6_tb'])),
+            ], 175, 55, "Storage Requirements (TB)", "#2E75B6")
+            if _sc:
+                story.append(Spacer(1, 2*mm))
+                story.append(_sc)
+        except Exception:
+            pass
 
     # Backup sizing
     if bk and sources:
@@ -523,6 +861,20 @@ def build_sizing_pdf(customer_id: int, db: Session, *, report_title=None, prepar
             ["⭐ Repository cần thiết", f"{bk_sz['repo_needed_tb']} TB", "Bao gồm overhead"],
             ["Throughput tối thiểu", f"{bk_sz['min_throughput_gbph']} GB/h"],
         ])
+
+        # Backup sizing chart
+        try:
+            _bc = _drawing_hbar([
+                ("Source Data",     float(bk_sz['total_source_tb'])),
+                ("Full Backup",     float(bk_sz['full_backup_tb'])),
+                ("After Dedup",     float(bk_sz['after_dedup_tb'])),
+                ("Repo Needed",     float(bk_sz['repo_needed_tb'])),
+            ], 175, 55, "Backup Sizing (TB)", "#7030A0")
+            if _bc:
+                story.append(Spacer(1, 2*mm))
+                story.append(_bc)
+        except Exception:
+            pass
 
     # OCP sizing
     if ocp:
