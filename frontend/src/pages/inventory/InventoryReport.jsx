@@ -171,12 +171,15 @@ function CategoryDetailTable({ items }) {
 function EOSTable({ summary }) {
   const { sortKey, sortDir, toggle, sort } = useSortTable()
 
+  // WAN links excluded: contract_expiry is a commercial contract date, not a device EOS
   const allEOS = useMemo(() =>
-    Object.entries(SECTION_LABELS).flatMap(([key, { icon, label }]) =>
-      (summary[key] || [])
-        .filter(item => supportStatus(item) === 'eos')
-        .map(item => ({ ...item, _cat: `${icon} ${label}` }))
-    ), [summary])
+    Object.entries(SECTION_LABELS)
+      .filter(([key]) => key !== 'wan_links')
+      .flatMap(([key, { icon, label }]) =>
+        (summary[key] || [])
+          .filter(item => supportStatus(item) === 'eos')
+          .map(item => ({ ...item, _cat: `${icon} ${label}` }))
+      ), [summary])
 
   const getVal = (item, key) => {
     if (key === 'cat')   return item._cat
@@ -751,9 +754,11 @@ export default function InventoryReport() {
     : 0
 
   // Support status breakdown — expand by qty
+  // WAN links are excluded: their contract_expiry is a commercial contract date, not a device EOS date
   const supportStats = { supported: 0, eos: 0, unknown: 0 }
   if (summary) {
     Object.keys(SECTION_LABELS).forEach(k => {
+      if (k === 'wan_links') return
       ;(summary[k] || []).forEach(item => {
         const qty = parseInt(item.qty) || 1
         supportStats[supportStatus(item)] += qty
@@ -812,7 +817,10 @@ export default function InventoryReport() {
 
           {/* Support status donut chart */}
           <div>
-            <h4 className="text-sm font-semibold text-gray-600 mb-3">Trạng thái hỗ trợ (End of Support)</h4>
+            <h4 className="text-sm font-semibold text-gray-600 mb-3">
+              Trạng thái hỗ trợ (End of Support)
+              <span className="ml-1 font-normal text-gray-400 text-xs">— excl. WAN Links</span>
+            </h4>
             <div className="flex justify-center">
               <DonutChart data={chartData} size={200} label="thiết bị" />
             </div>
@@ -947,7 +955,10 @@ export default function InventoryReport() {
       {/* EOS warning table — sortable */}
       {summary && supportStats.eos > 0 && (
         <div className="card border-red-200">
-          <h4 className="font-medium text-red-700 mb-3">⚠️ Thiết bị & Ứng dụng đã hết hỗ trợ</h4>
+          <h4 className="font-medium text-red-700 mb-3">
+            ⚠️ Thiết bị & Ứng dụng đã hết hỗ trợ
+            <span className="ml-2 font-normal text-red-400 text-xs">(không bao gồm WAN Links)</span>
+          </h4>
           <div className="overflow-x-auto">
             <EOSTable summary={summary} />
           </div>

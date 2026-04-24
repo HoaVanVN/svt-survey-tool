@@ -407,13 +407,14 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
             ('WAN Links', len(_wl)), ('Apps', len(_ap)),
         ] if c > 0]
 
-        # EOS status counts
+        # EOS status counts — WAN links excluded (contract_expiry is a commercial
+        # contract date, not a device end-of-support date)
         _today = datetime.now()
         _exp = _near = _ok = 0
-        for _il in [_srv, _san, _st, _net, _wf, _tp, _wl]:
+        for _il in [_srv, _san, _st, _net, _wf, _tp]:
             for _it in _il:
                 _ev = (_it.get('support_until') or _it.get('end_of_support') or
-                       _it.get('support_expiry') or _it.get('contract_expiry'))
+                       _it.get('support_expiry'))
                 _ed = _parse_eos_date(_ev)
                 _qty = int(_it.get('qty') or 1)
                 if _ed:
@@ -455,7 +456,7 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
             ("Active / OK",    _ok,   "#70AD47"),
             ("Near EOS ≤1yr",  _near, "#FFC000"),
             ("EOS Expired",    _exp,  "#C00000"),
-        ], 100, 80, "Support Status")
+        ], 100, 80, "Support Status (excl. WAN Links)")
         if _d1 or _d2:
             _r1 = Table([[_d1 or Spacer(1, 1), _d2 or Spacer(1, 1)]],
                         colWidths=[158*mm, 100*mm])
