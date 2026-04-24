@@ -3,15 +3,16 @@ import { Outlet, NavLink, useParams } from 'react-router-dom'
 import { exportApi } from '../../api'
 
 const TABS = [
-  { path: 'workload', label: '💻 Workload' },
-  { path: 'network', label: '🌐 Network' },
-  { path: 'backup', label: '💾 Backup' },
-  { path: 'security', label: '🔒 Security' },
-  { path: 'ocp', label: '☸️ OCP' },
-  { path: 'ocp-virt', label: '🖥️ OCP Virt' },
-  { path: 'refresh', label: '🔄 Refresh' },
-  { path: 'results', label: '📊 Kết quả' },
-  { path: 'report', label: '📋 Báo cáo' },
+  { path: 'workload', label: '💻 Workload Survey' },
+  { path: 'network', label: '🌐 Network Survey' },
+  { path: 'backup', label: '💾 Backup Survey' },
+  { path: 'security', label: '🔒 Security Survey' },
+  { path: 'ocp', label: '☸️ OCP Survey' },
+  { path: 'ocp-virt', label: '🖥️ OCP Virt Sizing' },
+  { path: 'storage', label: '💿 Storage Sizing' },
+  { path: 'refresh', label: '🔄 Sizing Refresh' },
+  { path: 'results', label: '📊 Sizing Results' },
+  { path: 'report', label: '📋 Sizing Report' },
 ]
 
 export default function SizingLayout() {

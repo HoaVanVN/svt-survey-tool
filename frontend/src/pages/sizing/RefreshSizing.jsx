@@ -99,7 +99,9 @@ export default function RefreshSizing() {
   // ── Existing server capacity from inventory ───────────────────────────────
   const existingCores = srv.reduce((s, sv) => {
     const sockets = parseInt(sv.cpu_sockets || sv.sockets || 0)
-    const cores   = parseInt(sv.cores_per_socket || sv.cores || 0)
+    // cores_per_cpu: set by ESXi host sync (mapVHostToServers)
+    // cores_per_socket: manually entered servers
+    const cores   = parseInt(sv.cores_per_socket || sv.cores_per_cpu || sv.cores || 0)
     const qty     = parseInt(sv.qty || 1)
     return s + (sockets * cores || parseInt(sv.total_cores || 0)) * qty
   }, 0)
