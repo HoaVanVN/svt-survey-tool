@@ -13,7 +13,19 @@ const SECTION_LABELS = {
   storage_systems: { icon: '💿', label: 'Storage Systems' },
   network_devices: { icon: '🌐', label: 'Network Devices' },
   wifi_aps:        { icon: '📶', label: 'WiFi Access Points' },
+  tape_libraries:  { icon: '📼', label: 'Tape Libraries' },
+  server_rooms:    { icon: '🏢', label: 'Server Rooms' },
+  wan_links:       { icon: '🔗', label: 'WAN Links' },
   applications:    { icon: '📦', label: 'Applications' },
+}
+
+// Per-category field overrides for aggregation dashboards
+// vendor: field to use as "vendor", null = skip from vendor dashboard
+// location: field to use as "location"
+const AGG_FIELDS = {
+  wan_links:    { vendor: 'isp',   location: 'site_name' },
+  server_rooms: { vendor: null,    location: 'location'  },
+  applications: { vendor: 'vendor',location: 'environment' },
 }
 
 // Count actual devices — multiply rows by their Quantity (SL) field
@@ -33,7 +45,8 @@ function parseEOS(val) {
 }
 
 function supportStatus(item) {
-  const eosVal = item.support_until || item.end_of_support || item.support_expiry
+  // wan_links use contract_expiry; all others use support_until / end_of_support / support_expiry
+  const eosVal = item.support_until || item.end_of_support || item.support_expiry || item.contract_expiry
   const d = parseEOS(eosVal)
   if (!d) return 'unknown'
   return d < new Date() ? 'eos' : 'supported'
@@ -95,7 +108,7 @@ function CategoryDetailTable({ items }) {
     if (key === 'model')    return item.model || item.version || ''
     if (key === 'location') return item.location || item.environment || ''
     if (key === 'eos') {
-      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry)
+      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry || item.contract_expiry)
       return d ? d.getTime() : 0
     }
     if (key === 'qty') return parseInt(item.qty) || 1
@@ -169,7 +182,7 @@ function EOSTable({ summary }) {
     if (key === 'cat')   return item._cat
     if (key === 'model') return item.model || item.version || ''
     if (key === 'eos') {
-      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry)
+      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry || item.contract_expiry)
       return d ? d.getTime() : 0
     }
     if (key === 'qty') return parseInt(item.qty) || 1
@@ -204,7 +217,7 @@ function EOSTable({ summary }) {
             <td className="table-cell">{item.vendor || '-'}</td>
             <td className="table-cell text-center font-medium">{parseInt(item.qty) || 1}</td>
             <td className="table-cell text-red-600 font-medium">
-              {item.support_until || item.end_of_support || item.support_expiry}
+              {item.support_until || item.end_of_support || item.support_expiry || item.contract_expiry}
             </td>
             <td className="table-cell">
               <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700 font-medium">EOS</span>
@@ -327,12 +340,18 @@ function CatBadges({ cats }) {
 }
 
 // ── Aggregation helpers ───────────────────────────────────────────────────────
-function useAggregation(summary, fieldFn) {
+// fieldKey: 'vendor' | 'location' — uses AGG_FIELDS overrides per category
+function useAggregation(summary, fieldKey) {
   return useMemo(() => {
     const map = {}
     Object.entries(SECTION_LABELS).forEach(([catKey, { label }]) => {
+      const override = AGG_FIELDS[catKey]
+      const fKey = override && Object.prototype.hasOwnProperty.call(override, fieldKey)
+        ? override[fieldKey]
+        : fieldKey
+      if (fKey === null) return  // skip this category for this aggregation
       ;(summary?.[catKey] || []).forEach(item => {
-        const key = (fieldFn(item) || '').trim() || 'Chưa xác định'
+        const key = ((item[fKey] || item[fieldKey] || '') + '').trim() || 'Chưa xác định'
         const qty = parseInt(item.qty) || 1
         if (!map[key]) map[key] = { total: 0, cats: {} }
         map[key].total += qty
@@ -348,7 +367,7 @@ function useAggregation(summary, fieldFn) {
 // ── Vendor dashboard ──────────────────────────────────────────────────────────
 function VendorDashboard({ summary }) {
   const { sortKey, sortDir, toggle, sort } = useSortTable()
-  const data = useAggregation(summary, item => item.vendor)
+  const data = useAggregation(summary, 'vendor')
   const grandTotal = data.reduce((s, r) => s + r.total, 0)
   const maxTotal   = Math.max(...data.map(r => r.total), 1)
 
@@ -414,8 +433,8 @@ function VendorDashboard({ summary }) {
 // ── Location dashboard ────────────────────────────────────────────────────────
 function LocationDashboard({ summary }) {
   const { sortKey, sortDir, toggle, sort } = useSortTable()
-  // location for hardware, environment for applications
-  const data = useAggregation(summary, item => item.location || item.environment)
+  // location for hardware; AGG_FIELDS overrides handle wan_links→site_name, apps→environment
+  const data = useAggregation(summary, 'location')
   const grandTotal = data.reduce((s, r) => s + r.total, 0)
   const maxTotal   = Math.max(...data.map(r => r.total), 1)
 
@@ -543,6 +562,175 @@ function VMOSTable({ osDist, totalVMs, poweredOn, totalDisk }) {
           </td>
         </tr>
       </tfoot>
+    </table>
+  )
+}
+
+// ── Server Rooms detail table ─────────────────────────────────────────────────
+function ServerRoomsTable({ items }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const getVal = (item, key) => {
+    if (key === 'rack_util') {
+      const total = parseInt(item.rack_count) || 0
+      return total > 0 ? (parseInt(item.rack_used) || 0) / total * 100 : 0
+    }
+    if (key === 'power_capacity_kva' || key === 'ups_capacity_kva' || key === 'cooling_capacity_kw')
+      return parseFloat(item[key]) || 0
+    return item[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(items, getVal), [items, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          <th className="table-hdr text-center w-7">#</th>
+          {th('Tên phòng máy', 'name')}
+          {th('Địa điểm', 'location')}
+          {th('Loại', 'room_type')}
+          {th('Tier', 'tier_level', 'text-center')}
+          {th('Rack (tổng/dùng)', 'rack_util', 'text-center')}
+          {th('Điện (kVA)', 'power_capacity_kva', 'text-center')}
+          {th('UPS (kVA)', 'ups_capacity_kva', 'text-center')}
+          {th('Làm mát', 'cooling_type')}
+          {th('Trạng thái', 'status')}
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((item, i) => {
+          const rTotal  = parseInt(item.rack_count) || 0
+          const rUsed   = parseInt(item.rack_used)  || 0
+          const rPct    = rTotal > 0 ? Math.round(rUsed / rTotal * 100) : null
+          return (
+            <tr key={i} className="hover:bg-gray-50">
+              <td className="table-cell text-center text-gray-400">{i + 1}</td>
+              <td className="table-cell font-medium">{item.name || '-'}</td>
+              <td className="table-cell">{item.location || '-'}</td>
+              <td className="table-cell">{item.room_type || '-'}</td>
+              <td className="table-cell text-center">
+                {item.tier_level ? (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700">{item.tier_level}</span>
+                ) : '—'}
+              </td>
+              <td className="table-cell text-center">
+                {rTotal > 0 ? (
+                  <div>
+                    <span className="font-medium">{rUsed}/{rTotal}</span>
+                    {rPct !== null && (
+                      <div className="mt-0.5 w-16 mx-auto bg-gray-100 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${rPct >= 90 ? 'bg-red-400' : rPct >= 70 ? 'bg-amber-400' : 'bg-green-400'}`}
+                          style={{ width: `${rPct}%` }} />
+                      </div>
+                    )}
+                  </div>
+                ) : '—'}
+              </td>
+              <td className="table-cell text-center">{item.power_capacity_kva || '—'}</td>
+              <td className="table-cell text-center">{item.ups_capacity_kva || '—'}</td>
+              <td className="table-cell">{item.cooling_type || '—'}</td>
+              <td className="table-cell">
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  item.status === 'Active'         ? 'bg-green-100 text-green-700'  :
+                  item.status === 'Planned'        ? 'bg-blue-100 text-blue-700'   :
+                  item.status === 'Decommissioned' ? 'bg-red-100 text-red-700'     :
+                  'bg-gray-100 text-gray-600'
+                }`}>{item.status || '-'}</span>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+// ── WAN Links detail table ────────────────────────────────────────────────────
+function WANLinksTable({ items }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const getVal = (item, key) => {
+    if (key === 'bandwidth_mbps') return parseFloat(item.bandwidth_mbps) || 0
+    if (key === 'contract_expiry') {
+      const d = parseEOS(item.contract_expiry)
+      return d ? d.getTime() : 0
+    }
+    return item[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(items, getVal), [items, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  const roleColor = r => ({
+    Primary:      'bg-blue-100 text-blue-700',
+    Secondary:    'bg-purple-100 text-purple-700',
+    Backup:       'bg-gray-100 text-gray-600',
+    'Load Balance':'bg-cyan-100 text-cyan-700',
+  }[r] || 'bg-gray-100 text-gray-600')
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          <th className="table-hdr text-center w-7">#</th>
+          {th('Site / Địa điểm', 'site_name')}
+          {th('ISP', 'isp')}
+          {th('Loại kết nối', 'link_type')}
+          {th('Bandwidth (Mbps)', 'bandwidth_mbps', 'text-center')}
+          {th('Vai trò', 'role', 'text-center')}
+          {th('IP / Subnet', 'ip_public')}
+          {th('SLA', 'sla', 'text-center')}
+          {th('Hết hạn HĐ', 'contract_expiry', 'text-center')}
+          {th('Trạng thái', 'status')}
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((item, i) => {
+          const expiry = parseEOS(item.contract_expiry)
+          const isExpired = expiry && expiry < new Date()
+          return (
+            <tr key={i} className={isExpired ? 'bg-red-50' : 'hover:bg-gray-50'}>
+              <td className="table-cell text-center text-gray-400">{i + 1}</td>
+              <td className="table-cell font-medium">{item.site_name || '-'}</td>
+              <td className="table-cell font-medium text-blue-700">{item.isp || '-'}</td>
+              <td className="table-cell">{item.link_type || '-'}</td>
+              <td className="table-cell text-center font-semibold">
+                {item.bandwidth_mbps
+                  ? (item.bandwidth_mbps >= 1000
+                      ? `${(item.bandwidth_mbps / 1000).toFixed(1)} Gbps`
+                      : `${item.bandwidth_mbps} Mbps`)
+                  : '—'}
+              </td>
+              <td className="table-cell text-center">
+                {item.role ? (
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${roleColor(item.role)}`}>{item.role}</span>
+                ) : '—'}
+              </td>
+              <td className="table-cell font-mono text-[10px]">{item.ip_public || '—'}</td>
+              <td className="table-cell text-center">{item.sla || '—'}</td>
+              <td className={`table-cell text-center font-medium ${isExpired ? 'text-red-600' : expiry ? 'text-green-600' : 'text-gray-400'}`}>
+                {item.contract_expiry || '—'}
+              </td>
+              <td className="table-cell">
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  item.status === 'Active'   ? 'bg-green-100 text-green-700' :
+                  item.status === 'Inactive' ? 'bg-red-100 text-red-700'    :
+                  item.status === 'Planned'  ? 'bg-blue-100 text-blue-700'  :
+                  'bg-gray-100 text-gray-600'
+                }`}>{item.status || '-'}</span>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
     </table>
   )
 }
@@ -776,13 +964,19 @@ export default function InventoryReport() {
             <h4 className="font-medium text-gray-700 mb-3">
               {icon} {label}
               <span className="ml-2 text-gray-400 font-normal text-xs">
-                {deviceCount} thiết bị
+                {deviceCount} mục
                 {deviceCount !== items.length && ` (${items.length} dòng × SL)`}
               </span>
               <span className="ml-2 text-[10px] text-gray-400 font-normal">— click tiêu đề cột để sắp xếp</span>
             </h4>
             <div className="overflow-x-auto">
-              <CategoryDetailTable items={items} />
+              {key === 'server_rooms' ? (
+                <ServerRoomsTable items={items} />
+              ) : key === 'wan_links' ? (
+                <WANLinksTable items={items} />
+              ) : (
+                <CategoryDetailTable items={items} />
+              )}
             </div>
           </div>
         )

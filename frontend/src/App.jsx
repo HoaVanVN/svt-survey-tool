@@ -24,6 +24,8 @@ import SizingReport from './pages/sizing/SizingReport'
 import OCPVirtSizing from './pages/sizing/OCPVirtSizing'
 import VMInventory from './pages/inventory/VMInventory'
 import TapeInventory from './pages/inventory/TapeInventory'
+import ServerRoomInventory from './pages/inventory/ServerRoomInventory'
+import WANLinkInventory from './pages/inventory/WANLinkInventory'
 import RVToolsReport from './pages/inventory/RVToolsReport'
 import RefreshSizing from './pages/sizing/RefreshSizing'
 import StorageSizing from './pages/sizing/StorageSizing'
@@ -56,6 +58,8 @@ export default function App() {
               <Route path="wifi" element={<WiFiInventory />} />
               <Route path="vms" element={<VMInventory />} />
               <Route path="tape-libraries" element={<TapeInventory />} />
+              <Route path="server-rooms" element={<ServerRoomInventory />} />
+              <Route path="wan-links" element={<WANLinkInventory />} />
               <Route path="applications" element={<ApplicationInventory />} />
               <Route path="report" element={<InventoryReport />} />
               <Route path="rvtools-report" element={<RVToolsReport />} />

@@ -298,6 +298,34 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
         col_widths=[8*mm,36*mm,30*mm,14*mm,16*mm,16*mm,26*mm,28*mm,26*mm,14*mm,None]
     )
 
+    # Server Rooms
+    server_rooms = (inv.server_rooms or []) if inv else []
+    section_table(
+        "VIII. SERVER ROOMS / DATA CENTER FACILITIES",
+        ["#", "Tên phòng máy", "Địa điểm", "Loại", "Tier", "Diện tích (m²)",
+         "Rack tổng/dùng", "Điện (kVA)", "UPS (kVA)", "Làm mát", "Trạng thái", "Ghi chú"],
+        [[i+1, s.get("name",""), s.get("location",""), s.get("room_type",""),
+          s.get("tier_level",""), s.get("total_area_sqm",""),
+          f'{s.get("rack_count","")}/{s.get("rack_used","")}',
+          s.get("power_capacity_kva",""), s.get("ups_capacity_kva",""),
+          s.get("cooling_type",""), s.get("status",""), s.get("notes","")]
+         for i, s in enumerate(server_rooms)],
+        col_widths=[8*mm,35*mm,35*mm,28*mm,18*mm,18*mm,20*mm,18*mm,18*mm,28*mm,22*mm,None]
+    )
+
+    # WAN Links
+    wan_links = (inv.wan_links or []) if inv else []
+    section_table(
+        "IX. WAN LINKS / SITE CONNECTIONS",
+        ["#", "Site / Địa điểm", "ISP", "Loại kết nối", "Bandwidth (Mbps)",
+         "Vai trò", "IP / Subnet", "SLA", "Hết hạn HĐ", "Trạng thái", "Ghi chú"],
+        [[i+1, s.get("site_name",""), s.get("isp",""), s.get("link_type",""),
+          s.get("bandwidth_mbps",""), s.get("role",""), s.get("ip_public",""),
+          s.get("sla",""), s.get("contract_expiry",""), s.get("status",""), s.get("notes","")]
+         for i, s in enumerate(wan_links)],
+        col_widths=[8*mm,35*mm,30*mm,30*mm,22*mm,20*mm,30*mm,15*mm,20*mm,20*mm,None]
+    )
+
     # Applications
     story.append(PageBreak())
     apps = (app_inv.applications or []) if app_inv else []
@@ -324,8 +352,10 @@ def build_inventory_pdf(customer_id: int, db: Session, *, report_title=None, pre
         ["WiFi Access Points", str(len(wifis))],
         ["Tape Libraries", str(len(tapes))],
         ["Virtual Machines", str(len(vms))],
+        ["Server Rooms",    str(len(server_rooms))],
+        ["WAN Links",       str(len(wan_links))],
         ["Applications", str(len(apps))],
-        ["TỔNG CỘNG", str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(tapes)+len(vms)+len(apps))],
+        ["TỔNG CỘNG", str(len(servers)+len(sans)+len(stors)+len(nets)+len(wifis)+len(tapes)+len(vms)+len(server_rooms)+len(wan_links)+len(apps))],
     ]
     sum_tbl = Table(summary_data, colWidths=[100*mm, 80*mm])
     sum_tbl.setStyle(_summary_tbl_style())
