@@ -306,15 +306,28 @@ export default function VMInventory() {
       toast.error('Không có dữ liệu ESXi host trong RVTools')
       return
     }
-    const mapped = mapVHostToServers(vhosts)
-    if (!window.confirm(
-      `Sync ${mapped.length} ESXi host(s) → Physical Servers?\n` +
-      `Dữ liệu Physical Servers hiện tại sẽ bị THAY THẾ hoàn toàn.`
-    )) return
     setSyncing(true)
     try {
-      await inventoryApi.saveCategory(id, 'servers', mapped)
-      toast.success(`✅ Đã sync ${mapped.length} ESXi host → Physical Servers`)
+      const mapped = mapVHostToServers(vhosts)
+      const existing = await inventoryApi.getCategory(id, 'servers')
+      const existingServers = existing.data.items || []
+      const existingNames = new Set(existingServers.map(s => (s.name || '').toLowerCase()))
+      const newServers = mapped.filter(s => !existingNames.has((s.name || '').toLowerCase()))
+      if (newServers.length === 0) {
+        toast('Tất cả ESXi host đã có trong Physical Servers — không có gì mới để thêm', { icon: 'ℹ️' })
+        return
+      }
+      const skipped = mapped.length - newServers.length
+      const msg = skipped > 0
+        ? `Thêm ${newServers.length} ESXi host mới → Physical Servers?\n(${skipped} host đã tồn tại, sẽ bỏ qua)`
+        : `Thêm ${newServers.length} ESXi host → Physical Servers?`
+      if (!window.confirm(msg)) return
+      await inventoryApi.saveCategory(id, 'servers', [...existingServers, ...newServers])
+      toast.success(
+        skipped > 0
+          ? `✅ Đã thêm ${newServers.length} host mới · bỏ qua ${skipped} host đã tồn tại`
+          : `✅ Đã thêm ${newServers.length} ESXi host → Physical Servers`
+      )
     } catch {
       toast.error('Lỗi khi sync Physical Servers')
     } finally {
