@@ -29,7 +29,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-gray-200 py-3 text-center text-xs text-gray-500">
-        SVT Survey Tool v2.2.3.4 — Infrastructure Sizing &amp; Inventory Platform &nbsp;·&nbsp; Author: <span className="font-medium">Van Thanh Hoa</span>
+        SVT Survey Tool v2.2.3.5 — Infrastructure Sizing &amp; Inventory Platform &nbsp;·&nbsp; Author: <span className="font-medium">Van Thanh Hoa</span>
       </footer>
     </div>
   )

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { inventory as api, exportApi } from '../../api'
 import DonutChart from '../../components/DonutChart'
 import { normalizeOS } from './VMInventory'
 import { buildTierSummary, totalRawTb, totalUsableTb, tierColor } from '../../utils/storageUtils'
+import ExportModal from '../../components/ExportModal'
 
 // virtual_machines is intentionally excluded — VMs are tracked separately in ☁️ VM Inventory
 const SECTION_LABELS = {
@@ -38,9 +39,336 @@ function supportStatus(item) {
   return d < new Date() ? 'eos' : 'supported'
 }
 
+// ── Sort hook ─────────────────────────────────────────────────────────────────
+function useSortTable() {
+  const [sortKey, setSortKey] = useState(null)
+  const [sortDir, setSortDir] = useState('asc')
+
+  const toggle = (key) => {
+    setSortKey(prev => {
+      if (prev === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); return key }
+      setSortDir('asc'); return key
+    })
+  }
+
+  const sort = (items, getVal) => {
+    if (!sortKey) return items
+    return [...items].sort((a, b) => {
+      const va = getVal ? getVal(a, sortKey) : (a[sortKey] ?? '')
+      const vb = getVal ? getVal(b, sortKey) : (b[sortKey] ?? '')
+      const na = parseFloat(String(va)), nb = parseFloat(String(vb))
+      const cmp = (!isNaN(na) && !isNaN(nb) && va !== '' && vb !== '')
+        ? (na - nb)
+        : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }
+
+  return { sortKey, sortDir, toggle, sort }
+}
+
+// ── Sortable TH ───────────────────────────────────────────────────────────────
+function SortTh({ label, colKey, sortKey, sortDir, onToggle, className = '', style }) {
+  const active = sortKey === colKey
+  return (
+    <th
+      className={`table-hdr cursor-pointer hover:bg-blue-700 select-none ${className}`}
+      style={style}
+      onClick={() => onToggle(colKey)}
+      title="Click để sắp xếp"
+    >
+      <span className="flex items-center gap-0.5">
+        <span className="flex-1">{label}</span>
+        <span className={`text-[9px] ml-0.5 ${active ? 'text-yellow-300' : 'text-white/40'}`}>
+          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
+// ── Per-category detail table ─────────────────────────────────────────────────
+function CategoryDetailTable({ items }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const getVal = (item, key) => {
+    if (key === 'model')    return item.model || item.version || ''
+    if (key === 'location') return item.location || item.environment || ''
+    if (key === 'eos') {
+      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry)
+      return d ? d.getTime() : 0
+    }
+    if (key === 'qty') return parseInt(item.qty) || 1
+    return item[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(items, getVal), [items, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          <th className="table-hdr text-center w-8">#</th>
+          {th('Tên', 'name')}
+          {th('Model / Version', 'model')}
+          {th('Vendor', 'vendor')}
+          {th('SL', 'qty', 'text-center')}
+          {th('Vị trí / Môi trường', 'location')}
+          {th('End of Support', 'eos')}
+          {th('Trạng thái', 'status')}
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((item, i) => {
+          const st = supportStatus(item)
+          return (
+            <tr key={i} className={st === 'eos' ? 'bg-red-50' : 'hover:bg-gray-50'}>
+              <td className="table-cell text-center text-gray-400">{i + 1}</td>
+              <td className="table-cell font-medium">{item.name || '-'}</td>
+              <td className="table-cell">{item.model || item.version || '-'}</td>
+              <td className="table-cell">{item.vendor || '-'}</td>
+              <td className="table-cell text-center font-semibold">{parseInt(item.qty) || 1}</td>
+              <td className="table-cell">{item.location || item.environment || '-'}</td>
+              <td className={`table-cell font-medium ${st === 'eos' ? 'text-red-600' : st === 'supported' ? 'text-green-600' : 'text-gray-400'}`}>
+                {item.support_until || item.end_of_support || item.support_expiry || '—'}
+              </td>
+              <td className="table-cell">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                  st === 'eos'           ? 'bg-red-100 text-red-700'    :
+                  item.status === 'Using'   ? 'bg-green-100 text-green-700' :
+                  item.status === 'Standby' ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-gray-100 text-gray-600'
+                }`}>
+                  {st === 'eos' ? 'EOS' : (item.status || item.criticality || '-')}
+                </span>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+// ── EOS warning table ─────────────────────────────────────────────────────────
+function EOSTable({ summary }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const allEOS = useMemo(() =>
+    Object.entries(SECTION_LABELS).flatMap(([key, { icon, label }]) =>
+      (summary[key] || [])
+        .filter(item => supportStatus(item) === 'eos')
+        .map(item => ({ ...item, _cat: `${icon} ${label}` }))
+    ), [summary])
+
+  const getVal = (item, key) => {
+    if (key === 'cat')   return item._cat
+    if (key === 'model') return item.model || item.version || ''
+    if (key === 'eos') {
+      const d = parseEOS(item.support_until || item.end_of_support || item.support_expiry)
+      return d ? d.getTime() : 0
+    }
+    if (key === 'qty') return parseInt(item.qty) || 1
+    return item[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(allEOS, getVal), [allEOS, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          {th('Hạng mục', 'cat')}
+          {th('Tên', 'name')}
+          {th('Model / Phiên bản', 'model')}
+          {th('Vendor', 'vendor')}
+          {th('SL', 'qty', 'text-center')}
+          {th('End of Support', 'eos')}
+          <th className="table-hdr">Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((item, i) => (
+          <tr key={i} className="bg-red-50">
+            <td className="table-cell">{item._cat}</td>
+            <td className="table-cell font-medium">{item.name || '-'}</td>
+            <td className="table-cell">{item.model || item.version || '-'}</td>
+            <td className="table-cell">{item.vendor || '-'}</td>
+            <td className="table-cell text-center font-medium">{parseInt(item.qty) || 1}</td>
+            <td className="table-cell text-red-600 font-medium">
+              {item.support_until || item.end_of_support || item.support_expiry}
+            </td>
+            <td className="table-cell">
+              <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700 font-medium">EOS</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// ── Storage tier table ────────────────────────────────────────────────────────
+function StorageTierTable({ tierEntries, tierRawTotal }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const rows = useMemo(() =>
+    tierEntries.map(([tier, v]) => ({ tier, ...v })),
+    [tierEntries]
+  )
+
+  const getVal = (row, key) => {
+    if (key === 'pct')  return tierRawTotal > 0 ? row.raw_tb / tierRawTotal * 100 : 0
+    if (key === 'eff')  return row.raw_tb > 0 ? row.usable_tb / row.raw_tb * 100 : 0
+    return row[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(rows, getVal), [rows, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          {th('Disk Tier', 'tier')}
+          {th('# Entries', 'device_count', 'text-center')}
+          {th('Raw (TB)', 'raw_tb', 'text-center')}
+          {th('Usable (TB)', 'usable_tb', 'text-center')}
+          {th('% Raw', 'pct', 'text-center')}
+          <th className="table-hdr">Biểu đồ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map(({ tier, raw_tb, usable_tb, device_count }) => {
+          const pct = tierRawTotal > 0 ? Math.round(raw_tb / tierRawTotal * 100) : 0
+          const eff = raw_tb > 0 ? Math.round(usable_tb / raw_tb * 100) : 0
+          return (
+            <tr key={tier} className="hover:bg-gray-50">
+              <td className="table-cell font-medium">
+                <span className="inline-block w-2 h-2 rounded-full mr-1.5 shrink-0" style={{ background: tierColor(tier) }} />
+                {tier}
+              </td>
+              <td className="table-cell text-center">{device_count}</td>
+              <td className="table-cell text-center font-semibold">{raw_tb.toFixed(1)}</td>
+              <td className="table-cell text-center text-green-700 font-semibold">{usable_tb.toFixed(1)}</td>
+              <td className="table-cell text-center text-gray-500">{pct}%</td>
+              <td className="table-cell" style={{ minWidth: 110 }}>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-gray-400 w-9 text-right">Raw</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: tierColor(tier) }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-gray-400 w-9 text-right">Usable</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full bg-green-400" style={{ width: `${pct * eff / 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+      <tfoot>
+        <tr className="bg-gray-50 font-semibold">
+          <td className="table-cell" colSpan={2}>Tổng</td>
+          <td className="table-cell text-center">{tierRawTotal.toFixed(1)} TB</td>
+          <td className="table-cell text-center text-green-700">
+            {tierEntries.reduce((s, [, v]) => s + v.usable_tb, 0).toFixed(1)} TB
+          </td>
+          <td className="table-cell text-center">100%</td>
+          <td className="table-cell text-gray-400 text-[10px]">
+            {tierRawTotal > 0 && `Eff: ${Math.round(tierEntries.reduce((s, [, v]) => s + v.usable_tb, 0) / tierRawTotal * 100)}%`}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  )
+}
+
+// ── VM OS distribution table ──────────────────────────────────────────────────
+function VMOSTable({ osDist, totalVMs, poweredOn, totalDisk }) {
+  const { sortKey, sortDir, toggle, sort } = useSortTable()
+
+  const getVal = (row, key) => {
+    if (key === 'pct') return totalVMs > 0 ? row.count / totalVMs * 100 : 0
+    return row[key] ?? ''
+  }
+
+  const sorted = useMemo(() => sort(osDist, getVal), [osDist, sortKey, sortDir])
+
+  const th = (label, key, cls = '') => (
+    <SortTh label={label} colKey={key} sortKey={sortKey} sortDir={sortDir} onToggle={toggle} className={cls} />
+  )
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr>
+          <th className="table-hdr text-center w-8">#</th>
+          {th('Hệ điều hành', 'os')}
+          {th('Số VM', 'count', 'text-center')}
+          {th('% Tổng', 'pct', 'text-center')}
+          {th('Powered On', 'on', 'text-center')}
+          <th className="table-hdr">Tỉ lệ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((row, i) => {
+          const pct = totalVMs > 0 ? Math.round(row.count / totalVMs * 100) : 0
+          return (
+            <tr key={row.os} className="hover:bg-gray-50">
+              <td className="table-cell text-center text-gray-400">{i + 1}</td>
+              <td className="table-cell font-medium">{row.os}</td>
+              <td className="table-cell text-center font-semibold">{row.count}</td>
+              <td className="table-cell text-center text-gray-500">{pct}%</td>
+              <td className="table-cell text-center text-green-700">{row.on > 0 ? row.on : '—'}</td>
+              <td className="table-cell" style={{ minWidth: 100 }}>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                    <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-gray-400 text-[10px] w-6 text-right">{pct}%</span>
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+      <tfoot>
+        <tr className="bg-gray-50 font-semibold">
+          <td className="table-cell" colSpan={2}>Tổng</td>
+          <td className="table-cell text-center">{totalVMs}</td>
+          <td className="table-cell text-center">100%</td>
+          <td className="table-cell text-center text-green-700">{poweredOn}</td>
+          <td className="table-cell text-gray-400 text-[10px]">
+            Disk: {totalDisk >= 1024 ? (totalDisk / 1024).toFixed(1) + ' TB' : totalDisk + ' GB'}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function InventoryReport() {
   const { id } = useParams()
-  const [summary, setSummary] = useState(null)
+  const [summary, setSummary]         = useState(null)
+  const [showExportModal, setShowExportModal] = useState(false)
 
   useEffect(() => {
     api.getAll(id).then(r => setSummary(r.data)).catch(() => {})
@@ -57,8 +385,7 @@ export default function InventoryReport() {
     Object.keys(SECTION_LABELS).forEach(k => {
       ;(summary[k] || []).forEach(item => {
         const qty = parseInt(item.qty) || 1
-        const st = supportStatus(item)
-        supportStats[st] += qty
+        supportStats[supportStatus(item)] += qty
       })
     })
   }
@@ -71,6 +398,14 @@ export default function InventoryReport() {
 
   return (
     <div className="space-y-4">
+      {showExportModal && (
+        <ExportModal
+          type="inventory"
+          onExport={params => { exportApi.inventoryPdf(id, null, params); setShowExportModal(false) }}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
+
       <div className="card">
         <h3 className="font-semibold text-gray-800 mb-4">📋 Inventory Report – Tổng kết</h3>
 
@@ -124,7 +459,7 @@ export default function InventoryReport() {
           </button>
           <button
             className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium transition-colors flex-1 text-sm"
-            onClick={() => exportApi.inventoryPdf(id)}
+            onClick={() => setShowExportModal(true)}
           >
             📄 Export Inventory PDF
           </button>
@@ -133,8 +468,8 @@ export default function InventoryReport() {
 
       {/* Storage capacity summary */}
       {summary && (summary.storage_systems || []).length > 0 && (() => {
-        const devices   = summary.storage_systems || []
-        const rawTotal  = totalRawTb(devices)
+        const devices     = summary.storage_systems || []
+        const rawTotal    = totalRawTb(devices)
         const usableTotal = totalUsableTb(devices)
         const tierSummary = buildTierSummary(devices)
         const tierEntries = Object.entries(tierSummary).sort((a, b) => b[1].raw_tb - a[1].raw_tb)
@@ -152,82 +487,27 @@ export default function InventoryReport() {
             {/* Totals */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               {[
-                { label: 'Tổng Raw',    value: rawTotal,                  unit: 'TB', color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
-                { label: 'Tổng Usable', value: usableTotal,               unit: 'TB', color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
+                { label: 'Tổng Raw',    value: rawTotal,    unit: 'TB', color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
+                { label: 'Tổng Usable', value: usableTotal, unit: 'TB', color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
                 { label: 'Storage Eff.', value: rawTotal > 0 ? `${Math.round(usableTotal / rawTotal * 100)}%` : '—', unit: '', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-100' },
-                { label: 'Tier types',  value: tierEntries.length || '—', unit: '',   color: 'text-gray-700',  bg: 'bg-gray-50',   border: 'border-gray-100' },
+                { label: 'Tier types',  value: tierEntries.length || '—', unit: '', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-100' },
               ].map(s => (
                 <div key={s.label} className={`rounded-lg p-3 text-center border ${s.bg} ${s.border}`}>
-                  <div className={`text-xl font-bold ${s.color}`}>{typeof s.value === 'number' ? s.value.toLocaleString() : s.value}{s.unit && <span className="text-sm font-normal ml-1">{s.unit}</span>}</div>
+                  <div className={`text-xl font-bold ${s.color}`}>
+                    {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}
+                    {s.unit && <span className="text-sm font-normal ml-1">{s.unit}</span>}
+                  </div>
                   <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Per-tier breakdown */}
+            {/* Per-tier breakdown — sortable */}
             {tierEntries.length > 0 && (
               <>
                 <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phân bổ theo Disk Tier</h5>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr>
-                        <th className="table-hdr">Disk Tier</th>
-                        <th className="table-hdr text-center"># Entries</th>
-                        <th className="table-hdr text-center">Raw (TB)</th>
-                        <th className="table-hdr text-center">Usable (TB)</th>
-                        <th className="table-hdr text-center">% Raw</th>
-                        <th className="table-hdr">Biểu đồ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tierEntries.map(([tier, { raw_tb, usable_tb, device_count }]) => {
-                        const pct = tierRawTotal > 0 ? Math.round(raw_tb / tierRawTotal * 100) : 0
-                        const eff = raw_tb > 0 ? Math.round(usable_tb / raw_tb * 100) : 0
-                        return (
-                          <tr key={tier} className="hover:bg-gray-50">
-                            <td className="table-cell font-medium">
-                              <span className="inline-block w-2 h-2 rounded-full mr-1.5 shrink-0" style={{ background: tierColor(tier) }} />
-                              {tier}
-                            </td>
-                            <td className="table-cell text-center">{device_count}</td>
-                            <td className="table-cell text-center font-semibold">{raw_tb.toFixed(1)}</td>
-                            <td className="table-cell text-center text-green-700 font-semibold">{usable_tb.toFixed(1)}</td>
-                            <td className="table-cell text-center text-gray-500">{pct}%</td>
-                            <td className="table-cell" style={{ minWidth: 110 }}>
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-gray-400 w-9 text-right">Raw</span>
-                                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: tierColor(tier) }} />
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-gray-400 w-9 text-right">Usable</span>
-                                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                                    <div className="h-1.5 rounded-full bg-green-400" style={{ width: `${pct * eff / 100}%` }} />
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-gray-50 font-semibold">
-                        <td className="table-cell" colSpan={2}>Tổng</td>
-                        <td className="table-cell text-center">{tierRawTotal.toFixed(1)} TB</td>
-                        <td className="table-cell text-center text-green-700">
-                          {tierEntries.reduce((s, [, v]) => s + v.usable_tb, 0).toFixed(1)} TB
-                        </td>
-                        <td className="table-cell text-center">100%</td>
-                        <td className="table-cell text-gray-400 text-[10px]">
-                          {tierRawTotal > 0 && `Eff: ${Math.round(tierEntries.reduce((s,[,v]) => s + v.usable_tb, 0) / tierRawTotal * 100)}%`}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                  <StorageTierTable tierEntries={tierEntries} tierRawTotal={tierRawTotal} />
                 </div>
               </>
             )}
@@ -237,17 +517,15 @@ export default function InventoryReport() {
 
       {/* VM Inventory summary */}
       {summary && (summary.virtual_machines || []).length > 0 && (() => {
-        const vms = summary.virtual_machines || []
+        const vms       = summary.virtual_machines || []
         const totalVMs  = vms.length
-        const poweredOn = vms.filter(v => (v.power_state || '').toLowerCase() === 'on' || (v.power_state || '') === 'On').length
+        const poweredOn = vms.filter(v => (v.power_state || '').toLowerCase() === 'on').length
         const poweredOff = totalVMs - poweredOn
         const totalVcpu = vms.reduce((s, v) => s + (parseInt(v.vcpu) || 0), 0)
         const totalRam  = vms.reduce((s, v) => s + (parseInt(v.ram_gb) || 0), 0)
         const totalDisk = vms.reduce((s, v) => s + (parseInt(v.disk_gb) || 0), 0)
 
-        // Group by os_type (fallback: normalizeOS(guest_os))
-        const osMap = {}
-        const osOnMap = {}
+        const osMap = {}, osOnMap = {}
         vms.forEach(v => {
           const os = v.os_type || normalizeOS(v.guest_os) || 'Unknown'
           osMap[os] = (osMap[os] || 0) + 1
@@ -264,14 +542,13 @@ export default function InventoryReport() {
               <span className="ml-2 text-gray-400 font-normal text-xs">{totalVMs} VMs</span>
             </h4>
 
-            {/* VM stats row */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
               {[
-                { label: 'Tổng VMs',    value: totalVMs,  color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
-                { label: 'Powered On',  value: poweredOn, color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
-                { label: 'Powered Off', value: poweredOff,color: 'text-gray-600',  bg: 'bg-gray-50',   border: 'border-gray-100' },
-                { label: 'Total vCPU',  value: totalVcpu, color: 'text-purple-700',bg: 'bg-purple-50', border: 'border-purple-100' },
-                { label: 'Total RAM (GB)', value: totalRam, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' },
+                { label: 'Tổng VMs',      value: totalVMs,   color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-100' },
+                { label: 'Powered On',    value: poweredOn,  color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-100' },
+                { label: 'Powered Off',   value: poweredOff, color: 'text-gray-600',   bg: 'bg-gray-50',   border: 'border-gray-100' },
+                { label: 'Total vCPU',    value: totalVcpu,  color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-100' },
+                { label: 'Total RAM (GB)', value: totalRam,  color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' },
               ].map(s => (
                 <div key={s.label} className={`rounded-lg p-3 text-center border ${s.bg} ${s.border}`}>
                   <div className={`text-xl font-bold ${s.color}`}>{s.value.toLocaleString()}</div>
@@ -280,104 +557,25 @@ export default function InventoryReport() {
               ))}
             </div>
 
-            {/* OS distribution table */}
             <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phân bổ OS</h5>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    <th className="table-hdr text-center w-8">#</th>
-                    <th className="table-hdr">Hệ điều hành</th>
-                    <th className="table-hdr text-center">Số VM</th>
-                    <th className="table-hdr text-center">% Tổng</th>
-                    <th className="table-hdr text-center">Powered On</th>
-                    <th className="table-hdr">Tỉ lệ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {osDist.map((row, i) => {
-                    const pct = totalVMs > 0 ? Math.round(row.count / totalVMs * 100) : 0
-                    return (
-                      <tr key={row.os} className="hover:bg-gray-50">
-                        <td className="table-cell text-center text-gray-400">{i + 1}</td>
-                        <td className="table-cell font-medium">{row.os}</td>
-                        <td className="table-cell text-center font-semibold">{row.count}</td>
-                        <td className="table-cell text-center text-gray-500">{pct}%</td>
-                        <td className="table-cell text-center text-green-700">{row.on > 0 ? row.on : '—'}</td>
-                        <td className="table-cell" style={{ minWidth: 100 }}>
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                              <div
-                                className="bg-blue-400 h-1.5 rounded-full"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className="text-gray-400 text-[10px] w-6 text-right">{pct}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-gray-50 font-semibold">
-                    <td className="table-cell" colSpan={2}>Tổng</td>
-                    <td className="table-cell text-center">{totalVMs}</td>
-                    <td className="table-cell text-center">100%</td>
-                    <td className="table-cell text-center text-green-700">{poweredOn}</td>
-                    <td className="table-cell text-gray-400 text-[10px]">
-                      Disk: {totalDisk >= 1024 ? (totalDisk / 1024).toFixed(1) + ' TB' : totalDisk + ' GB'}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+              <VMOSTable osDist={osDist} totalVMs={totalVMs} poweredOn={poweredOn} totalDisk={totalDisk} />
             </div>
           </div>
         )
       })()}
 
-      {/* EOS warning table */}
+      {/* EOS warning table — sortable */}
       {summary && supportStats.eos > 0 && (
         <div className="card border-red-200">
           <h4 className="font-medium text-red-700 mb-3">⚠️ Thiết bị & Ứng dụng đã hết hỗ trợ</h4>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr>
-                  <th className="table-hdr">Hạng mục</th>
-                  <th className="table-hdr">Tên</th>
-                  <th className="table-hdr">Model / Phiên bản</th>
-                  <th className="table-hdr">Vendor</th>
-                  <th className="table-hdr text-center">SL</th>
-                  <th className="table-hdr">End of Support</th>
-                  <th className="table-hdr">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(SECTION_LABELS).flatMap(([key, { icon, label }]) =>
-                  (summary[key] || [])
-                    .filter(item => supportStatus(item) === 'eos')
-                    .map((item, i) => (
-                      <tr key={`${key}-${i}`} className="bg-red-50">
-                        <td className="table-cell">{icon} {label}</td>
-                        <td className="table-cell font-medium">{item.name || '-'}</td>
-                        <td className="table-cell">{item.model || item.version || '-'}</td>
-                        <td className="table-cell">{item.vendor || '-'}</td>
-                        <td className="table-cell text-center font-medium">{parseInt(item.qty) || 1}</td>
-                        <td className="table-cell text-red-600 font-medium">{item.support_until || item.end_of_support || item.support_expiry}</td>
-                        <td className="table-cell">
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700 font-medium">EOS</span>
-                        </td>
-                      </tr>
-                    ))
-                )}
-              </tbody>
-            </table>
+            <EOSTable summary={summary} />
           </div>
         </div>
       )}
 
-      {/* Per-category detail tables */}
+      {/* Per-category detail tables — each sortable independently */}
       {summary && Object.entries(SECTION_LABELS).map(([key, { icon, label }]) => {
         const items = summary[key] || []
         if (!items.length) return null
@@ -390,50 +588,10 @@ export default function InventoryReport() {
                 {deviceCount} thiết bị
                 {deviceCount !== items.length && ` (${items.length} dòng × SL)`}
               </span>
+              <span className="ml-2 text-[10px] text-gray-400 font-normal">— click tiêu đề cột để sắp xếp</span>
             </h4>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    <th className="table-hdr text-center w-8">#</th>
-                    <th className="table-hdr">Tên</th>
-                    <th className="table-hdr">Model / Version</th>
-                    <th className="table-hdr">Vendor</th>
-                    <th className="table-hdr text-center">SL</th>
-                    <th className="table-hdr">Vị trí / Môi trường</th>
-                    <th className="table-hdr">End of Support</th>
-                    <th className="table-hdr">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, i) => {
-                    const st = supportStatus(item)
-                    return (
-                      <tr key={i} className={st === 'eos' ? 'bg-red-50' : 'hover:bg-gray-50'}>
-                        <td className="table-cell text-center text-gray-400">{i + 1}</td>
-                        <td className="table-cell font-medium">{item.name || '-'}</td>
-                        <td className="table-cell">{item.model || item.version || '-'}</td>
-                        <td className="table-cell">{item.vendor || '-'}</td>
-                        <td className="table-cell text-center font-semibold">{parseInt(item.qty) || 1}</td>
-                        <td className="table-cell">{item.location || item.environment || '-'}</td>
-                        <td className={`table-cell font-medium ${st === 'eos' ? 'text-red-600' : st === 'supported' ? 'text-green-600' : 'text-gray-400'}`}>
-                          {item.support_until || item.end_of_support || item.support_expiry || '—'}
-                        </td>
-                        <td className="table-cell">
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                            st === 'eos'           ? 'bg-red-100 text-red-700'    :
-                            item.status === 'Using'   ? 'bg-green-100 text-green-700' :
-                            item.status === 'Standby' ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-gray-100 text-gray-600'
-                          }`}>
-                            {st === 'eos' ? 'EOS' : (item.status || item.criticality || '-')}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              <CategoryDetailTable items={items} />
             </div>
           </div>
         )
