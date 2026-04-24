@@ -5,7 +5,7 @@ import { inventory as api } from '../../api'
 import { useRefs } from '../../hooks/useRefs'
 import { useAutoSave } from '../../hooks/useAutoSave'
 import InventoryTable from '../../components/InventoryTable'
-import { RAID_OPTIONS, raidEff } from '../../utils/storageUtils'
+import { tierColor } from '../../utils/storageUtils'
 
 const FIELDS = [
   { key: 'name',             label: 'Tên thiết bị',   type: 'text',   width: 130 },
@@ -23,37 +23,12 @@ const FIELDS = [
   { key: 'host_port_type',   label: 'Port Type',       type: 'select', width: 115,
     options: ['8Gb FC', '16Gb FC', '32Gb FC', '64Gb FC', '1GbE', '10GbE', '25GbE', 'NVMe-oF 25GbE', 'NVMe-oF 100GbE', 'Khác'],
     pasteAlts: ['port type', 'hba type', 'port speed'] },
-  { key: 'tier_capacities',  label: 'Disk Tiers',      type: 'tier_list', width: 200, default: [] },
-  { key: 'raid_type',        label: 'RAID',            type: 'select', width: 80,
-    options: RAID_OPTIONS,
-    pasteAlts: ['raid', 'raid type', 'raid level'] },
-  { key: 'raw_capacity_tb',  label: 'Raw (TB)',         type: 'number', width: 75,
-    pasteAlts: ['raw tb', 'raw capacity', 'raw', 'total raw'] },
-  { key: 'usable_capacity_tb', label: 'Usable (TB)',   type: 'number', width: 80,
-    pasteAlts: ['usable tb', 'usable capacity', 'usable', 'net capacity'] },
+  // tier_capacities: each entry = { tier, raw_tb, usable_tb } — RAID/usable entered per tier
+  { key: 'tier_capacities',  label: 'Disk Tiers (Raw / Usable per tier)', type: 'tier_list', width: 280, default: [] },
   { key: 'support_until',    label: 'Support Until',   type: 'eos',    width: 95 },
   { key: 'status',           label: 'Trạng thái',      type: 'select', refType: 'device_statuses', width: 100, default: 'Using' },
   { key: 'notes',            label: 'Ghi chú',         type: 'text',   width: 110 },
 ]
-
-// Auto-compute raw_capacity_tb and usable_capacity_tb from tier_capacities + raid_type.
-// Only updates if tiers are non-empty (allows manual override when no tiers defined).
-function withAutoCapacity(item, prev) {
-  const tiersChanged = JSON.stringify(item.tier_capacities) !== JSON.stringify(prev?.tier_capacities)
-  const raidChanged  = item.raid_type !== prev?.raid_type
-  if (!tiersChanged && !raidChanged) return item
-
-  const tiers  = Array.isArray(item.tier_capacities) ? item.tier_capacities : []
-  const rawSum = tiers.reduce((s, t) => s + (parseFloat(t.raw_tb) || 0), 0)
-  if (rawSum <= 0) return item  // no tier data → keep manual values
-
-  const eff = raidEff(item.raid_type)
-  return {
-    ...item,
-    raw_capacity_tb:    Math.round(rawSum * 100) / 100,
-    usable_capacity_tb: Math.round(rawSum * eff * 100) / 100,
-  }
-}
 
 export default function StorageInventory() {
   const { id } = useParams()
@@ -74,10 +49,8 @@ export default function StorageInventory() {
   }, [id])
 
   const handleChange = (newItems) => {
-    const prev = prevRef.current
-    const updated = newItems.map((item, i) => withAutoCapacity(item, prev[i]))
-    prevRef.current = updated
-    setItems(updated)
+    prevRef.current = newItems
+    setItems(newItems)
   }
 
   const doSave = useCallback(async () => {
@@ -118,9 +91,30 @@ export default function StorageInventory() {
     }
   }
 
-  // Quick totals (sum raw/usable × qty per device)
-  const totalRaw    = items.reduce((s, d) => s + (parseFloat(d.raw_capacity_tb)    || 0) * (parseInt(d.qty) || 1), 0)
-  const totalUsable = items.reduce((s, d) => s + (parseFloat(d.usable_capacity_tb) || 0) * (parseInt(d.qty) || 1), 0)
+  // Quick totals — summed from tier_capacities per device × qty
+  const totalRaw = items.reduce((s, d) => {
+    const qty  = parseInt(d.qty) || 1
+    const tRaw = (d.tier_capacities || []).reduce((ts, t) => ts + (parseFloat(t.raw_tb)    || 0), 0)
+    return s + tRaw * qty
+  }, 0)
+  const totalUsable = items.reduce((s, d) => {
+    const qty     = parseInt(d.qty) || 1
+    const tUsable = (d.tier_capacities || []).reduce((ts, t) => ts + (parseFloat(t.usable_tb) || 0), 0)
+    return s + tUsable * qty
+  }, 0)
+
+  // Per-tier quick breakdown for header display
+  const tierMap = {}
+  items.forEach(d => {
+    const qty = parseInt(d.qty) || 1
+    ;(d.tier_capacities || []).forEach(t => {
+      if (!t.tier) return
+      if (!tierMap[t.tier]) tierMap[t.tier] = { raw: 0, usable: 0 }
+      tierMap[t.tier].raw    += (parseFloat(t.raw_tb)    || 0) * qty
+      tierMap[t.tier].usable += (parseFloat(t.usable_tb) || 0) * qty
+    })
+  })
+  const tierEntries = Object.entries(tierMap).sort((a, b) => b[1].raw - a[1].raw)
 
   return (
     <div className="card space-y-3">
@@ -134,16 +128,31 @@ export default function StorageInventory() {
             {!isDirty && lastSaved && <span className="text-xs text-green-600">✓ tự động lưu {fmtTime(lastSaved)}</span>}
           </h3>
           {(totalRaw > 0 || totalUsable > 0) && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              Raw: <span className="font-medium text-gray-700">{totalRaw.toFixed(1)} TB</span>
-              <span className="mx-1.5 text-gray-300">·</span>
-              Usable: <span className="font-medium text-green-700">{totalUsable.toFixed(1)} TB</span>
-              {totalRaw > 0 && (
-                <span className="ml-1.5 text-gray-400">
-                  ({Math.round(totalUsable / totalRaw * 100)}% hiệu suất)
-                </span>
+            <div className="mt-0.5 space-y-0.5">
+              <p className="text-xs text-gray-500">
+                Tổng Raw: <span className="font-medium text-blue-700">{totalRaw.toFixed(1)} TB</span>
+                <span className="mx-1.5 text-gray-300">·</span>
+                Tổng Usable: <span className="font-medium text-green-700">{totalUsable.toFixed(1)} TB</span>
+                {totalRaw > 0 && (
+                  <span className="ml-1.5 text-gray-400">
+                    ({Math.round(totalUsable / totalRaw * 100)}% eff.)
+                  </span>
+                )}
+              </p>
+              {tierEntries.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {tierEntries.map(([tier, v]) => (
+                    <span key={tier} className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: tierColor(tier) }} />
+                      <span className="font-medium">{tier}:</span>
+                      <span className="text-blue-600">{v.raw.toFixed(1)}</span>
+                      <span className="text-gray-300">/</span>
+                      <span className="text-green-600">{v.usable.toFixed(1)} TB</span>
+                    </span>
+                  ))}
+                </div>
               )}
-            </p>
+            </div>
           )}
         </div>
       </div>

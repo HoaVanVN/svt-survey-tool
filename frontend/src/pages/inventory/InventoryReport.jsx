@@ -154,7 +154,7 @@ export default function InventoryReport() {
               {[
                 { label: 'Tổng Raw',    value: rawTotal,                  unit: 'TB', color: 'text-blue-700',  bg: 'bg-blue-50',   border: 'border-blue-100' },
                 { label: 'Tổng Usable', value: usableTotal,               unit: 'TB', color: 'text-green-700', bg: 'bg-green-50',  border: 'border-green-100' },
-                { label: 'RAID Eff.',   value: rawTotal > 0 ? `${Math.round(usableTotal / rawTotal * 100)}%` : '—', unit: '', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-100' },
+                { label: 'Storage Eff.', value: rawTotal > 0 ? `${Math.round(usableTotal / rawTotal * 100)}%` : '—', unit: '', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-100' },
                 { label: 'Tier types',  value: tierEntries.length || '—', unit: '',   color: 'text-gray-700',  bg: 'bg-gray-50',   border: 'border-gray-100' },
               ].map(s => (
                 <div key={s.label} className={`rounded-lg p-3 text-center border ${s.bg} ${s.border}`}>

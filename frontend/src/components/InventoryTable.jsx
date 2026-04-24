@@ -31,7 +31,7 @@ const DISK_TIERS = ['Tier0 – NVMe', 'Tier1 – SSD', 'Tier2 – HDD 10K/15K', 
 function TierListCell({ value, onChange }) {
   const list = Array.isArray(value) ? value : []
 
-  const add = () => onChange([...list, { tier: DISK_TIERS[0], raw_tb: 0 }])
+  const add = () => onChange([...list, { tier: DISK_TIERS[0], raw_tb: 0, usable_tb: 0 }])
   const remove = (i) => onChange(list.filter((_, j) => j !== i))
   const setEntry = (i, f, v) => {
     const next = [...list]
@@ -40,11 +40,20 @@ function TierListCell({ value, onChange }) {
   }
 
   return (
-    <div className="space-y-1 min-w-[190px]">
+    <div className="space-y-1 min-w-[270px]">
+      {/* Column headers */}
+      {list.length > 0 && (
+        <div className="grid items-center gap-0.5" style={{ gridTemplateColumns: '1fr 3.5rem 3.5rem 1.1rem' }}>
+          <span className="text-[9px] text-gray-400 pl-0.5">Tier</span>
+          <span className="text-[9px] text-blue-400 text-right">Raw TB</span>
+          <span className="text-[9px] text-green-500 text-right">Use TB</span>
+          <span />
+        </div>
+      )}
       {list.map((entry, i) => (
-        <div key={i} className="flex items-center gap-1">
+        <div key={i} className="grid items-center gap-0.5" style={{ gridTemplateColumns: '1fr 3.5rem 3.5rem 1.1rem' }}>
           <select
-            className="text-[10px] border-gray-200 rounded px-0.5 py-0.5 border flex-1 min-w-0"
+            className="text-[10px] border-gray-200 rounded px-0.5 py-0.5 border w-full"
             value={entry.tier || DISK_TIERS[0]}
             onChange={e => setEntry(i, 'tier', e.target.value)}
           >
@@ -54,16 +63,24 @@ function TierListCell({ value, onChange }) {
             type="number"
             step="0.1"
             min="0"
-            className="border-gray-200 rounded px-1 py-0.5 border text-[10px] w-14 text-right"
-            placeholder="TB"
+            className="border-blue-200 rounded px-0.5 py-0.5 border text-[10px] w-full text-right"
+            placeholder="0"
             value={entry.raw_tb ?? ''}
             onChange={e => setEntry(i, 'raw_tb', parseFloat(e.target.value) || 0)}
           />
-          <span className="text-[9px] text-gray-400 shrink-0">TB</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            className="border-green-200 rounded px-0.5 py-0.5 border text-[10px] w-full text-right text-green-700"
+            placeholder="0"
+            value={entry.usable_tb ?? ''}
+            onChange={e => setEntry(i, 'usable_tb', parseFloat(e.target.value) || 0)}
+          />
           <button
             type="button"
             onClick={() => remove(i)}
-            className="text-red-300 hover:text-red-500 text-xs shrink-0 leading-none"
+            className="text-red-300 hover:text-red-500 text-xs leading-none pl-0.5"
             title="Xóa tier"
           >×</button>
         </div>
@@ -76,10 +93,14 @@ function TierListCell({ value, onChange }) {
         + Add tier
       </button>
       {list.length > 0 && (() => {
-        const rawSum = list.reduce((s, t) => s + (parseFloat(t.raw_tb) || 0), 0)
-        return rawSum > 0 ? (
+        const rawSum    = list.reduce((s, t) => s + (parseFloat(t.raw_tb)    || 0), 0)
+        const usableSum = list.reduce((s, t) => s + (parseFloat(t.usable_tb) || 0), 0)
+        return (rawSum > 0 || usableSum > 0) ? (
           <div className="text-[10px] text-gray-400 text-right border-t border-gray-100 pt-0.5 mt-0.5">
-            Σ raw: <span className="font-medium text-gray-600">{rawSum.toFixed(1)} TB</span>
+            Σ <span className="text-blue-500 font-medium">{rawSum.toFixed(1)}</span>
+            {' / '}
+            <span className="text-green-600 font-medium">{usableSum.toFixed(1)}</span>
+            <span className="text-gray-300 ml-0.5">TB</span>
           </div>
         ) : null
       })()}

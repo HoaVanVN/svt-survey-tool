@@ -207,12 +207,36 @@ def build_inventory_pdf(customer_id: int, db: Session) -> io.BytesIO:
 
     # Storage
     stors = (inv.storage_systems or []) if inv else []
+
+    def _stor_raw(s):
+        tiers = s.get("tier_capacities") or []
+        if tiers:
+            return round(sum(float(t.get("raw_tb") or 0) for t in tiers), 2)
+        return s.get("raw_capacity_tb", "") or ""
+
+    def _stor_usable(s):
+        tiers = s.get("tier_capacities") or []
+        if tiers:
+            return round(sum(float(t.get("usable_tb") or 0) for t in tiers), 2)
+        return s.get("usable_capacity_tb", "") or ""
+
+    def _stor_tiers(s):
+        tiers = s.get("tier_capacities") or []
+        if not tiers:
+            return s.get("notes", "")
+        tier_str = " | ".join(
+            f"{t.get('tier','')} R:{float(t.get('raw_tb') or 0):.1f}/U:{float(t.get('usable_tb') or 0):.1f}TB"
+            for t in tiers
+        )
+        notes = s.get("notes", "")
+        return f"{tier_str}  {notes}".strip() if notes else tier_str
+
     section_table(
         "III. STORAGE SYSTEMS",
-        ["#", "Tên thiết bị", "Model", "Vendor", "Serial", "SL", "Loại", "Raw (TB)", "Usable (TB)", "Trạng thái", "Ghi chú"],
+        ["#", "Tên thiết bị", "Model", "Vendor", "Serial", "SL", "Loại", "Raw (TB)", "Usable (TB)", "Trạng thái", "Disk Tiers / Ghi chú"],
         [[i+1, s.get("name",""), s.get("model",""), s.get("vendor",""), s.get("serial",""),
-          s.get("qty",1), s.get("storage_type",""), s.get("raw_capacity_tb",""), s.get("usable_capacity_tb",""),
-          s.get("status",""), s.get("notes","")] for i, s in enumerate(stors)],
+          s.get("qty",1), s.get("storage_type",""), _stor_raw(s), _stor_usable(s),
+          s.get("status",""), _stor_tiers(s)] for i, s in enumerate(stors)],
     )
 
     # Network Devices
